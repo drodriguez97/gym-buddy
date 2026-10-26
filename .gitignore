@@ -1,0 +1,12 @@
+# Practice recordings stay local; labeled sets worth keeping go in server/tests/fixtures/
+recordings/practice/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets: Wi-Fi password and upload token (commit config.example.py instead)
+watch/config.py
+.env
