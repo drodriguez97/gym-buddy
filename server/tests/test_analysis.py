@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from app.analysis import count_reps, load_set
 
@@ -65,9 +66,31 @@ def test_small_fast_wobble_counts_zero():
     assert len(peaks) == 0
 
 
-def test_recorded_set_00003_is_six_curls():
-    # Recorded on the wrist with a rubber band: 6 curls (recordings/labels.csv).
-    meta, _, accel, _ = load_set(FIXTURES / "00003-36d8f2.bin")
-    peaks, _, axis = count_reps(accel, meta["rate_hz"])
-    assert axis == 1
-    assert len(peaks) == 6
+def test_watch_facing_you_at_start_and_end_is_ignored():
+    # 2 s with the watch facing up (z = +1) to press the button, then the arm
+    # hangs (x = -1) for 5 curls on x, then the watch faces up again.
+    t = np.arange(0, 16, 1 / RATE)
+    rng = np.random.default_rng(1)
+    accel = rng.normal(0, 0.05, (len(t), 3))
+    facing = (t < 2) | (t >= 14)
+    accel[facing, 2] += 1.0
+    hanging = ~facing
+    x = np.full_like(t, -1.0)
+    active = (t >= 3) & (t < 13)
+    x[active] = -np.cos(2 * np.pi * (t[active] - 3) / 2.0)
+    accel[hanging, 0] += x[hanging]
+    peaks, _, axis = count_reps(accel, RATE)
+    assert axis == 0
+    assert len(peaks) == 5
+
+
+@pytest.mark.parametrize("set_id, true_reps", [
+    ("00003-36d8f2", 6),   # rubber band on wrist
+    ("00004-a956cd", 6),   # strap, light weight
+    ("00007-130966", 6),   # strap, medium weight
+])
+def test_recorded_curls(set_id, true_reps):
+    # Counts come from recordings/labels.csv.
+    meta, _, accel, _ = load_set(FIXTURES / f"{set_id}.bin")
+    peaks, _, _ = count_reps(accel, meta["rate_hz"])
+    assert len(peaks) == true_reps
