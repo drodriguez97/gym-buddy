@@ -1,6 +1,23 @@
-set_id,exercise,true_reps,notes
-00001-069784,random,0,moving the device up and down by hand
-00002-42b088,random,0,moving the device up and down by hand
-00003-36d8f2,curl,6,rubber band on wrist
-00004-a956cd,curl,6,light weight
-00007-130966,curl,6,medium weight
+set_id,kind,exercise,true_reps,notes
+00009-8a9712,positive,shoulder_press,6,
+00010-b7c065,positive,shoulder_press,6,
+00011-986608,positive,chest_press,6,
+00012-38b5e5,positive,chest_press,6,
+00013-db6df8,positive,row_underhand,6,bent over
+00014-8c8699,positive,row_underhand,6,bent over
+00015-8494c3,positive,row_overhand,6,bent over
+00016-929d8f,positive,row_overhand,6,bent over
+00017-2aa0e3,edge,pullup,5,6th rep was a half rep; counted as 5
+00018-f6719e,positive,pullup,6,
+00020-c98ef8,negative,walking,0,20 s walking
+00021-813c5a,negative,walking,0,walking
+00022-6371dc,negative,stairs,0,up and down stairs
+00023-c9ccd7,negative,jog,0,light jog
+00024-c365e4,negative,fast_walk,0,fast walk
+00025-436afd,negative,stairs,0,up stairs
+
+00026-2ffe6b,positive,pushup,7,7th rep was short, right before getting up
+00027-80659c,positive,pushup,6,
+00003-36d8f2,positive,curl,6,rubber band on wrist
+00004-a956cd,positive,curl,6,light weight
+00007-130966,positive,curl,6,medium weight

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from scipy.ndimage import maximum_filter1d
 from scipy.signal import find_peaks
 
 
@@ -27,16 +28,6 @@ def smooth(signal, rate_hz, window_s=0.2):
 def busiest_axis(accel, rate_hz):
     """The axis (0 = x, 1 = y, 2 = z) whose smoothed signal moves the most."""
     return int(np.argmax([smooth(accel[:, i], rate_hz).std() for i in range(3)]))
-
-
-def tops_point_up(signal, rate_hz, rest_s=0.5):
-    """True if the top of each rep is a peak, False if it's a dip.
-
-    A set starts with your arm resting at the bottom, so the tops are on
-    whichever side of that resting level the rest of the set sits.
-    """
-    rest = np.median(signal[: max(1, int(rest_s * rate_hz))])
-    return signal.mean() >= rest
 
 
 def active_window(accel, rate_hz, margin_s=0.5, near_g=0.3):
@@ -69,24 +60,242 @@ def active_window(accel, rate_hz, margin_s=0.5, near_g=0.3):
     return start, end
 
 
-def count_reps(accel, rate_hz, axis=None, invert=None, trim=True,
-               min_prominence=0.3, min_rep_s=0.3):
+def rep_period(signal, rate_hz, shortest_s=0.6, longest_s=6.0):
+    """Seconds per rep, from how well the signal lines up with a shifted copy of itself.
+
+    None if nothing repeats clearly (holding still, random movement).
+    """
+    period, strength = rep_rhythm(signal, rate_hz, shortest_s, longest_s)
+    return period if strength >= 0.3 else None
+
+
+def rep_rhythm(signal, rate_hz, shortest_s=0.6, longest_s=6.0):
+    """(seconds per rep, how regular it is) from the signal's match with a
+    shifted copy of itself. Regularity is 0 to 1: curls and swings score
+    0.7-0.9, fidgeting between sets scores under 0.2, so it tells exercise
+    from rest. Returns (None, 0) if nothing repeats at all.
+    """
+    x = signal - signal.mean()
+    match = np.correlate(x, x, mode="full")[len(x) - 1:]
+    if match[0] == 0:
+        return None, 0.0
+    match = match / match[0]                  # 1.0 = a perfect repeat
+    lo, hi = int(shortest_s * rate_hz), int(longest_s * rate_hz)
+    shifts, _ = find_peaks(match[lo:hi], height=0)
+    if not len(shifts):
+        return None, 0.0
+    best = shifts[np.argmax(match[lo:hi][shifts])]
+    return (best + lo) / rate_hz, float(match[lo:hi][best])
+
+
+def is_linear(accel, axis_signal, rate_hz):
+    """True if the reps push the watch in a line (press, row), False if they tilt it (curl).
+
+    Tilting only moves gravity between the axes, so the total stays near 1 g.
+    Pushing changes the total too, about as much as it changes the busy axis.
+    """
+    total = smooth(np.linalg.norm(accel, axis=1), rate_hz)
+    return total.std() > 0.6 * axis_signal.std()
+
+
+def total_wobble(accel, rate_hz):
+    """How hard the watch is really pushed, in g (std of the smoothed |accel|).
+
+    Tilting only moves gravity between the axes, so it cancels out of the
+    total. Reps that carry a weight push the watch (0.3-0.5 g on Dan's sets);
+    a walking arm swing mostly tilts (0.1-0.2 g); a hand on a bar barely
+    moves at all (0.03 g).
+    """
+    return smooth(np.linalg.norm(accel, axis=1), rate_hz).std()
+
+
+def swing_size(signal):
+    """How far the signal travels, top to bottom, ignoring the outliers (g)."""
+    return np.percentile(signal, 98) - np.percentile(signal, 2)
+
+
+def dominant_hz(signal, rate_hz, min_hz=0.3):
+    """The strongest repeating beat in the signal, in beats per second.
+
+    Reps come at 0.5-0.9 per second. Footsteps come at about 2 per second,
+    which a rep never does. Measured on the raw signal, not on counted peaks:
+    the peak spacing rule drops every other footstep and makes walking look
+    rep-paced.
+    """
+    x = signal - signal.mean()
+    freqs = np.fft.rfftfreq(len(x), 1 / rate_hz)
+    power = np.abs(np.fft.rfft(x)) ** 2
+    power[freqs < min_hz] = 0                 # ignore slow drift
+    return freqs[np.argmax(power)]
+
+
+def roll_angle(gyro, rate_hz, axis=None, drift_s=3.0):
+    """Wrist angle in degrees from the gyro, with the slow drift removed.
+
+    A gyro reads turning speed. Adding it up over time gives the angle, which
+    for a pull-up rises and falls once per rep, like a tilt would. The running
+    sum also drifts, so a drift_s-second average is subtracted back out.
+    Returns (angle, axis used). axis None picks the gyro axis that turns most.
+    """
+    if axis is None:
+        axis = int(np.argmax(gyro.std(axis=0)))
+    angle = np.cumsum(gyro[:, axis]) / rate_hz
+    angle = angle - smooth(angle, rate_hz, drift_s)
+    return smooth(angle, rate_hz, 0.2), axis
+
+
+def count_anchored(gyro, rate_hz, accel=None, min_prominence_deg=8, min_rep_s=0.6,
+                   min_lift=0.5, max_push=0.3, push_ratio=6, settle_s=0.3):
+    """Count reps for an anchored hand (pull-ups, push-ups): one top per wrist roll.
+
+    Same peak logic as count_reps, run on the wrist angle instead of the
+    accelerometer. Getting into and out of position (dropping to a knee,
+    jumping off the bar) rolls the wrist far more than a rep does and shoves
+    the watch, which a rep on an anchored hand barely does. So when accel is
+    given, a shove in the first or last quarter of the set (|accel| more than
+    max_push from 1 g and push_ratio times the set's own usual push, plus
+    settle_s either side) is treated as a transition: its gyro is zeroed
+    before integrating, so it can't fold into the last rep's hill, and no top
+    is counted there. Only the edges are checked because on a forearm a
+    push-up itself pushes harder than on the wrist, and masking mid-set
+    cost 10 points on RecoFit's push-ups. Returns peak indexes into gyro.
+    """
+    moving = None
+    if accel is not None:
+        push = np.abs(smooth(np.linalg.norm(accel, axis=1), rate_hz) - 1.0)
+        limit = max(max_push, push_ratio * np.percentile(push, 75))
+        width = max(1, int(2 * settle_s * rate_hz))
+        moving = maximum_filter1d((push > limit).astype(int), size=width) > 0
+        n = len(moving)
+        moving[n // 4: n - n // 4] = False       # transitions happen at the ends
+        gyro = gyro.copy()
+        gyro[moving] = 0
+    angle, _ = roll_angle(gyro, rate_hz)
+    period = rep_period(angle, rate_hz)
+    gap = max(min_rep_s, 0.7 * period if period else 0)
+    peaks, _ = find_peaks(angle, prominence=min_prominence_deg, distance=max(1, int(gap * rate_hz)))
+    if moving is not None and len(peaks):
+        peaks = peaks[~moving[peaks]]
+    if len(peaks) and min_lift:
+        lift = angle[peaks] - np.median(angle)
+        peaks = peaks[lift >= min_lift * np.median(lift)]
+    return peaks
+
+
+# Exercises where the hand holds something fixed (bar, floor) and the body
+# moves. The watch barely travels, so reps are counted from the wrist roll.
+ANCHORED_EXERCISES = {"pullup", "chinup", "dip", "pushup", "pushup_knee", "hang"}
+
+THRESHOLDS = dict(
+    max_rhythm_hz=1.5,       # faster beats than this are footsteps, not reps
+    anchored_wobble=0.08,    # below this push the hand is holding something fixed
+    anchored_swing=0.6,
+    swing_wobble=0.2,        # below this push with a modest swing is an arm swinging
+    swing_max=1.2,           # a curl is tilt too, but swings the full 2 g
+    min_regularity=0.3,      # below this nothing repeats: rest, fidgeting
+    locomotion_s=150,        # very regular for longer than this is a walk/jog/machine
+    locomotion_regularity=0.7,
+)
+
+
+def describe_set(accel, rate_hz, gyro=None, trim=True, exercise=None, **kw):
+    """The measurements and which rule they trigger. Used by count_reps, the
+    plot script and the scorecard, so a wrong count comes with a reason.
+
+    exercise: the name the user picked in the dashboard, if any. A known
+    anchored exercise is counted on the gyro, any other named exercise on the
+    accelerometer, and the guesses between arm swing / anchored / reps are
+    skipped: the user's word beats the guess. The no-rhythm and footstep
+    checks still apply either way, so a mislabeled rest or walk still counts 0.
+
+    Returns a dict: wobble, swing, rhythm_hz, regularity, seconds, kind (one of
+    'reps', 'anchored', 'footsteps', 'arm swing', 'no rhythm') and the thresholds.
+    """
+    th = dict(THRESHOLDS)
+    th.update(kw)
+    start, end = active_window(accel, rate_hz) if trim else (0, len(accel))
+    axis = busiest_axis(accel[start:end], rate_hz)
+    reps = smooth(accel[:, axis], rate_hz)[start:end]
+    wobble = total_wobble(accel[start:end], rate_hz)
+    swing = swing_size(reps)
+    rhythm = dominant_hz(reps, rate_hz)
+    seconds = (end - start) / rate_hz
+    _, regularity = rep_rhythm(reps, rate_hz)
+    if gyro is not None:
+        # An anchored hand barely moves the accelerometer; its rhythm is in the wrist roll.
+        angle, _ = roll_angle(gyro[start:end], rate_hz)
+        regularity = max(regularity, rep_rhythm(angle, rate_hz)[1])
+    anchored = wobble < th["anchored_wobble"] and swing < th["anchored_swing"]
+    if exercise is not None:
+        anchored = exercise in ANCHORED_EXERCISES
+    if rhythm > th["max_rhythm_hz"]:
+        kind = "footsteps"
+    elif seconds > th["locomotion_s"] and regularity > th["locomotion_regularity"]:
+        kind = "footsteps"                    # nobody does a 3-minute set; treadmills and ellipticals do
+    elif anchored:
+        kind = "anchored"
+    elif regularity < th["min_regularity"]:
+        kind = "no rhythm"
+    elif exercise is None and wobble < th["swing_wobble"] and swing < th["swing_max"]:
+        kind = "arm swing"
+    else:
+        kind = "reps"
+    return dict(wobble=wobble, swing=swing, rhythm_hz=rhythm, regularity=regularity,
+                seconds=seconds, kind=kind, start=start, end=end, axis=axis, **th)
+
+
+def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
+               exercise=None, min_prominence=0.3, min_rep_s=0.3, min_lift=0.6, **thresholds):
     """Find the top of each rep. Returns (peak indexes, smoothed signal, axis used).
 
+    Checks run first, in this order (see describe_set and THRESHOLDS):
+      beat faster than 1.5/s, or very regular for over 150 s -> footsteps, no reps
+      wobble and swing both tiny (or a known anchored exercise) -> count wrist roll on the gyro
+      nothing repeats (regularity under 0.3)                   -> rest or fidgeting, no reps
+      wobble small and swing under 1.2 g                        -> arm swinging while walking, no reps
+    Anything else is counted on the accelerometer as before. A curl is mostly
+    tilt too, but it swings the full 2 g, which is what swing_max protects.
+
+    exercise: what the user picked in the dashboard; skips the guesses (see describe_set).
+    gyro: needed for the anchored case; without it that case counts 0.
     axis: None picks the axis that moves the most during the reps.
-    invert: None works out from the start of the reps whether tops are peaks or dips.
+    invert: None works out whether the tops are peaks or dips (see below).
     trim: ignore the start and end where the watch faces you (see active_window).
+    min_lift: drop a top that rises less than this share of a typical rep,
+        e.g. the bump from getting into position before the first rep.
     Peak indexes count from the start of the whole set, so they line up with t.
     """
-    start, end = active_window(accel, rate_hz) if trim else (0, len(accel))
+    info = describe_set(accel, rate_hz, gyro, trim, exercise, **thresholds)
+    start, end = info["start"], info["end"]
     if axis is None:
-        axis = busiest_axis(accel[start:end], rate_hz)
+        axis = info["axis"]
     sig = smooth(accel[:, axis], rate_hz)
     reps = sig[start:end]
+    none = np.array([], dtype=int)
+    if info["kind"] in ("footsteps", "arm swing", "no rhythm"):
+        return none, sig, axis
+    if info["kind"] == "anchored":
+        if gyro is None:
+            return none, sig, axis
+        return count_anchored(gyro[start:end], rate_hz, accel[start:end]) + start, sig, axis
     if invert is None:
-        invert = not tops_point_up(reps, rate_hz)
-    peaks, _ = find_peaks(-reps if invert else reps, prominence=min_prominence,
-                          distance=max(1, int(min_rep_s * rate_hz)))
+        if is_linear(accel[start:end], reps, rate_hz):
+            # Press or row: the top of a rep is where the weight slows down
+            # and turns back, a push downward. If the axis points up
+            # (median > 0) that's a dip, if it points down it's a peak.
+            invert = bool(np.median(reps) > 0)
+        else:
+            # Curl: the tops are the short trips away from the resting level.
+            mid = np.median(reps)
+            invert = (np.percentile(reps, 98) - mid) < (mid - np.percentile(reps, 2))
+    y = -reps if invert else reps
+    # One top per rep: two tops closer than 70% of a rep are the same rep.
+    period = rep_period(y, rate_hz)
+    gap = max(min_rep_s, 0.7 * period if period else 0)
+    peaks, _ = find_peaks(y, prominence=min_prominence, distance=max(1, int(gap * rate_hz)))
+    if len(peaks) and min_lift:
+        lift = y[peaks] - np.median(y)
+        peaks = peaks[lift >= min_lift * np.median(lift)]
     return peaks + start, sig, axis
 
 
@@ -96,11 +305,14 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     meta, t, accel, gyro = load_set(sys.argv[1])
-    peaks, sig, axis = count_reps(accel, meta["rate_hz"])
-    start, end = active_window(accel, meta["rate_hz"])
+    peaks, sig, axis = count_reps(accel, meta["rate_hz"], gyro)
+    info = describe_set(accel, meta["rate_hz"], gyro)
+    start, end = info["start"], info["end"]
     name = "xyz"[axis]
     print(f"{meta['set_id']}: {len(peaks)} reps on {name}, {meta['count']} readings at {meta['rate_hz']:.1f} Hz, late {meta['late']}")
     print(f"reps counted between {t[start]:.1f} s and {t[end - 1]:.1f} s")
+    print(f"looks like {info['kind']}: wobble {info['wobble']:.2f} g, swing {info['swing']:.2f} g, "
+          f"rhythm {info['rhythm_hz']:.2f}/s, regularity {info['regularity']:.2f}, {info['seconds']:.0f} s")
     plt.axvspan(t[0], t[start], color="0.85", label="ignored")
     plt.axvspan(t[end - 1], t[-1], color="0.85")
     for i, n in enumerate("xyz"):
@@ -112,3 +324,4 @@ if __name__ == "__main__":
     plt.title(f"{meta['set_id']}: {len(peaks)} reps")
     plt.legend()
     plt.show()
+

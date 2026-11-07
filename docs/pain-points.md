@@ -1,102 +1,87 @@
 # Pain points
 
-Problems we hit while building Gym Buddy: what happened, what we learned, and where each one stands.
-These are raw material for the presentation's "a bug found and fixed" and "limitations" slides.
-Newest last. Status is **Open** or **Solved**.
+Each entry: the problem, what it cost, and where it stands. Resolved ones stay
+here because they are the story of the project. Why each fix was chosen is in
+decisions.md; the evidence is in presentation/README.md.
 
----
+## Open
 
-## 1. The UIFlow startup app blocked the REPL (Solved, 2026-10-25)
+- **Presses on the forearm.** On RecoFit's forearm data, shoulder press (53%),
+  chest press on the rack (39%) and dips (35%) are still far below the 93%
+  benchmark even when told the exercise. The forearm travels less than the wrist,
+  so the rep bumps are small and `min_prominence=0.3 g` throws them out. Not a
+  problem on Dan's wrist (100% on his presses), so it is parked until there is a
+  reason to support another placement. See decisions.md, "Wrist only".
+- **Non-exercise is 67% correct.** A third of RecoFit's rest periods still count
+  reps: people fidget rhythmically (adjusting the band, bouncing a knee). The
+  regularity check caught the other two thirds. The next step is probably a
+  minimum number of consistent reps (3 or more at the same spacing) before a set
+  counts at all.
+- **Dips have no wrist data.** Counted on the wrist roll like pull-ups (35% on
+  RecoFit's forearm). Two sets on the watch would tell us if the rule holds.
+- **Shoulder press and chest press look identical on x.** Exercise guessing has
+  a known floor until gyro or z features are added. Less urgent now that the
+  dashboard supplies the exercise name and the analyzer uses it.
+- **No clock on the watch until it joins Wi-Fi.** Sets can't be ordered across
+  power-ons until the first NTP sync. Plan: `ntptime.settime()` on sync,
+  `started_at = null` before that.
+- **Curl set 00003 counts 5 of 6.** The first curl sets (00003, 00004, 00007)
+  came back into the labels when the weekend analyzer was merged into the main
+  repo. 00004 and 00007 still count 6; 00003 (worn on a rubber band, not the
+  strap) counts 5, so `test_recorded_sets[positive-curl-00003]` fails.
 
-**What happened:** Every reboot started UIFlow's own launcher, which held on to the stick. Thonny kept showing "Device is busy" and the `>>>` prompt kept disappearing.
+## Resolved
 
-**Cause:** UIFlow's `boot.py` reads a saved setting, `boot_option`, from NVS. It was 1 ("show the startup menu"). Editing `boot.py` didn't help, because the setting lives in NVS, not in the file.
+- **The UIFlow startup app blocked the REPL.** Every reboot opened UIFlow's
+  launcher, and Thonny showed "Device is busy". `boot_option` lives in NVS, not
+  in `boot.py`. Fixed 2026-10-25 by setting it to 0, so the stick boots straight
+  into `main.py`.
+- **Which axis shows a curl depends on how the watch is worn.** On a rubber band
+  curls showed up on y; with the strap, on x. Fixed 2026-10-29: `busiest_axis`
+  picks the axis that moves most instead of assuming one.
+- **Turning the watch to press the button looked like reps.** Sets 00004 and
+  00007 (6 curls each) counted 8 and 5. Fixed 2026-10-29: `active_window`
+  ignores the start and end of a set until the watch reaches a position the
+  reps use.
 
-**Fix:** Set `boot_option` to 0 in NVS (`set_u8`, then `commit()`). Now the stick boots straight into our `main.py`.
-
-**Lesson:** A setting stored on the device is not the same as the code that reads it.
-
----
-
-## 2. Which axis shows a curl depends on how the watch is worn (Solved, 2026-10-29)
-
-**What happened:** We first guessed that x would run along the forearm. With a rubber band, curls actually showed up on y. With the strap, they showed up on x, because the strap holds the stick turned 90°.
-
-**Fix:** `count_reps` picks the axis that moves the most (`busiest_axis`) instead of assuming one.
-
-**Lesson:** Measure instead of assuming, and don't hard-code anything that depends on how the device is mounted.
-
----
-
-## 3. Turning the watch toward you to press the button looked like reps (Solved, 2026-10-29)
-
-**What happened:** Sets 00004 (light) and 00007 (medium) were 6 curls each, but the counter said 8 and 5.
-
-**Cause:** Each set starts and ends with the wrist turned so the watch faces you, to press the button. That turn was the biggest movement in the set, so it fooled the axis choice and added a fake peak.
-
-**Fix:** `active_window` ignores the start and end of a set until the watch reaches a position the reps actually use. Both sets now count 6, and tests with those recordings keep it that way.
-
-**Lesson:** Real use includes the moments around the exercise, not just the reps. Synthetic test data didn't have this, and only real recordings exposed it.
-
----
-
-## 4. Random movement still counts as reps (Open)
-
-**What happened:** Sets 00001 and 00002 were just the stick moved up and down by hand (0 reps), but the counter finds 8 and 11.
-
-**Why it's hard:** Waving the stick produces waves big enough to pass the strength threshold, just like real reps.
-
-**Plan:** The design doc's consistency filter: each rep must look like the previous one in size, timing and axis. Random movement is irregular, and real sets are not.
-
----
-
-## 5. Choosing how to count each exercise (Open)
-
-**The problem:** Different exercises move the forearm in very different ways, so one counting method can't handle all of them.
-
-| Family | What the forearm does | Examples | Signal |
-|---|---|---|---|
-| Tilt | Rotates, changing its angle to gravity | Curls, tricep extensions, lateral raises | Big ±1 g swings. **The counter works** |
-| Push / pull | Keeps its angle and moves in a straight line | Bench press, shoulder press, rows, pulldowns | Small bumps of about ±0.2–0.4 g, only while the weight speeds up or slows down. **Not handled yet** |
-
-**What makes it hard:**
-- Push/pull reps don't tilt the watch, so gravity barely changes and the signal is about 4× weaker than a curl.
-- A press starts at the top (lockout) and a curl at the bottom. The current direction check assumes the set starts at the bottom.
-- Pauses at the top or bottom of a rep produce no signal at all, because a bar that isn't speeding up or slowing down has no acceleration.
-- The movement direction changes from exercise to exercise (vertical presses, horizontal rows), so the axis changes too.
-- How the exercises group into families is still a working guess.
-
-**How others handle it:** As far as we know, Fitbit and Apple Watch don't count lifting reps. Garmin counts reps and guesses the exercise, and users often correct both afterwards.
-
-**Plan:**
-1. Record 2 sets each of bench press, row and shoulder press, plus 20 s lying still on the bench. Label them all in `labels.csv`.
-2. Plot them next to a curl to check whether the push/pull family really holds. Split it if the plots disagree.
-3. Build and test a push/pull counter from those recordings.
-4. Add the exercise → family table on the server and an exercise picker on the watch (`BtnB`).
-5. Later (v2): use the gyro to check or guess the family. Tilts spin the gyro, and pushes and pulls barely move it.
-
-**Decision so far:** The user picks the exercise, and the server maps it to a family (see decisions.md, 2026-10-29). Guessing the exercise automatically is out of scope for v1.
-
----
-
-## 6. Collecting labeled recordings is slow and manual (Open)
-
-**The problem:** Every improvement to the counter depends on real recordings with a known answer. Getting one set takes many manual steps:
-
-1. Do the set at the gym, pressing the button to start and stop.
-2. Remember what it was (exercise, weight, how many reps).
-3. Stop the program in Thonny and copy the `.bin` and `.json` over USB.
-4. Add a row to `recordings/labels.csv` by hand.
-5. Copy the useful sets into `server/tests/fixtures/` and add them to the tests.
-
-**Why it matters:** Each movement family needs several sets, plus sets that should count 0 (walking, arm swings, re-racking). That's dozens of sets, and every step is a chance to lose a set or mislabel one.
-
-**Why it can't just be skipped:** Synthetic sets from the simulator are fast and keep tests running without hardware, but they missed pain point 3 entirely. Only real recordings showed it. Commercial trackers have the same problem: labeled data is the expensive part.
-
-**Plan:**
-- **Milestone 3 removes the USB step.** The watch uploads sets over Wi-Fi when you get home.
-- **Confirm counts on the dashboard.** The server counts each set after upload, and the dashboard shows the count with a way to correct it. A confirmed or corrected count becomes the label, so `labels.csv` is generated instead of typed. (The watch doesn't count reps itself, so it can't do this step.)
-- **Or enter the count on the watch.** After stopping a set, the buttons set the number of reps you actually did, and it's saved in the set's `.json`. Simpler to build, but more presses at the gym.
-- **Pick the exercise before the set** (pain point 5), so the exercise is recorded with the set automatically.
-- **Record in batches.** Plan a session of several labeled sets at once instead of one at a time.
-- **Keep the simulator for the bulk of the tests,** and use real recordings for the cases it can't imitate.
+- **Watch died in a day.** Idle loop polled at full power with the backlight on.
+  Fixed 2026-10-30/31: screen off after 20 s, light sleep while dark, deep sleep
+  after 10 min, radios off at boot. First attempt bricked the wake path (wrong
+  GPIO for the ESP32-S3); sleep now stays off until `BTN_A_PIN` is set to a
+  verified pin in 0–21.
+- **Fixtures were silently skipped.** Sets copied into `tests/fixtures` without a
+  `labels.csv` row never ran. Fixed 2026-10-31: `test_every_fixture_is_labeled`
+  fails with the missing ids.
+- **Walking, stairs and jogging counted as reps** (20–49 "reps" per recording).
+  Fixed 2026-10-31 with the cadence check (dominant rhythm above 1.5/s is
+  footsteps) and the arm-swing check (small push, modest swing). All six
+  movement sets count 0.
+- **Pull-ups counted 1 and 2 of 6.** The watch barely moves on the bar. Fixed
+  2026-10-31 by counting the wrist-roll angle from the gyro when the hand is
+  anchored. 5/5 and 6/6 (set 17's sixth rep was a half rep; relabeled `edge`).
+- **One person's data was not enough.** Rules that looked clean on 12 sets broke
+  on the 13th (a jog). Recruiting people to wear the watch is impractical.
+  Resolved 2026-10-31: the Microsoft RecoFit data set (94 people, 70+ exercises,
+  true rep counts, accel + gyro at 50 Hz). `scripts/import_recofit.py` converts
+  it to our format; `recordings/recofit` holds 821 sets; `scripts/scorecard.py`
+  scores them; `pytest -m benchmark` enforces floors.
+- **Push-ups counted the drop-down and the stand-up as reps.** First two
+  wrist sets (26, 27) counted 8 and 6 for 7 and 6: getting onto a knee and
+  standing up roll the wrist more than a rep and landed as reps 1 and 8 (set 27
+  was right by luck: a missed last rep and a counted stand-up). Fixed
+  2026-10-31: a big push in the first or last quarter of a set is a transition;
+  its gyro is zeroed before the angle is built and nothing is counted there.
+  7/7 and 6/6. Masking anywhere in the set, not just the ends, cost 10 points on
+  RecoFit's forearm push-ups, so it stays at the ends.
+- **Thresholds tuned on the wrist did not transfer to the forearm.** First
+  RecoFit run: 58% within ±1. Treadmill jogging and the elliptical slipped under
+  the 1.5 Hz footstep line (a forearm swings once per two steps) and counted
+  hundreds of reps; presses fell into the arm-swing band. Resolved the same
+  afternoon to 79% (64% blind) with three changes: a regularity check (nothing
+  repeats → 0), a long-locomotion check (very regular for over 150 s → 0; no set
+  lasts that long), and passing the dashboard's exercise name into `count_reps`
+  so the guess is skipped. Presses remain open (above).
+- **The first count_reps only knew curls.** Presses and rows overcounted (7 to
+  13 for 6) until the tilt-vs-line check was added (2026-10-30). Lesson that has
+  held all weekend: every new exercise and every new non-exercise needs labeled
+  sets before the counter is trusted on it.
