@@ -25,10 +25,14 @@ decisions.md; the evidence is in presentation/README.md.
 - **No clock on the watch until it joins Wi-Fi.** Sets can't be ordered across
   power-ons until the first NTP sync. Plan: `ntptime.settime()` on sync,
   `started_at = null` before that.
-- **Curl set 00003 counts 5 of 6.** The first curl sets (00003, 00004, 00007)
-  came back into the labels when the weekend analyzer was merged into the main
-  repo. 00004 and 00007 still count 6; 00003 (worn on a rubber band, not the
-  strap) counts 5, so `test_recorded_sets[positive-curl-00003]` fails.
+- **Curls that hold at the top can count the gaps instead of the reps.** Set
+  00003 (worn on a rubber band, the arm staying up longer than it rests) counted
+  the 5 gaps between its 6 reps, because the tops are taken to be the short trips
+  away from where the arm spends most of its time. A fix that used the resting
+  position at the start of the set got 00003 right but moved 26 RecoFit sets,
+  more for the worse than the better, so it was not kept. 00003 was removed from
+  the fixtures (2026-11-07): one set from a mount no longer used should not
+  shape the counter. 00004 and 00007 still count 6.
 
 ## Resolved
 
