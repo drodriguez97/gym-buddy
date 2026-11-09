@@ -1,6 +1,9 @@
 # Practice recordings stay local; labeled sets worth keeping go in server/tests/fixtures/
 recordings/practice/
 
+# Sets uploaded to the server (server/data/sets/) stay out of Git
+data/
+
 # Python
 .venv/
 __pycache__/
