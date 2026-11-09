@@ -7,13 +7,16 @@ Decided 2026-10-30. Fill in the blanks before Sunday.
 - Server (FastAPI): stores sets, runs count_reps, groups sets into workouts, serves the dashboard.
 - Dashboard: reads from the server. Labels the exercise per set.
 
-## POST /sets
-- One request per set, .json metadata and .bin bytes together (multipart? or bin as body + metadata in headers? decide: ______).
-- Header: X-Token = shared token.
+## POST /sets (built 2026-11-08, server/app/main.py)
+- One request per set. Decided: the .bin bytes are the request body, and the set's .json goes in the `X-Set-Meta` header. Chosen over multipart because MicroPython's urequests has no multipart helper; raw bytes plus a header is a few lines on the watch.
+- Header: X-Token = shared token. Server reads it from the `GYM_BUDDY_TOKEN` environment variable (default `dev-token` for development only).
 - Response 201: {"set_id": "...", "stored": true}
 - Duplicate set_id: same 201 receipt, file not written twice. Retrying is always safe.
 - Watch deletes the local files only when the receipt's set_id matches the one it sent. A bare 200 is not a receipt.
 - Bad token: 401. Missing/short body: 422.
+- 422 also for: X-Set-Meta that isn't a JSON object, a set_id not matching `^\d{5}-[0-9a-f]{6}$` (it becomes a file name, so this blocks path traversal), and a body that isn't exactly `count` × 12 bytes (catches uploads cut off by a Wi-Fi drop).
+- Storage: `GYM_BUDDY_DATA` (default `data/sets`). Each file is written to a temp name and renamed, and the .bin is written last, so a crash never leaves a half set that counts as "already have it".
+- Tested: server/tests/test_api.py (TestClient, fixture set 00004), and over real HTTP with server/scripts/try_upload.py (set 00007 stored, still counts 6 reps).
 
 ## GET /sets, GET /sets/{id}
 - Metadata + rep count + exercise + exercise_source (manual | guessed | confirmed).
