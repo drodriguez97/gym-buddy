@@ -1,13 +1,22 @@
 # main.py: the front button starts and stops a set.
 #
-# Battery plan (idle is where the battery goes, not the sets):
-#   screen on  -> normal polling, 20 ms naps
-#   screen off -> light sleep: CPU and radios parked, wakes on the button
-#   long idle  -> deep sleep (~microamps); the button reboots us, sets are safe on flash
+# Battery plan. The watch is in exactly one of these states:
+#   RECORDING  CPU awake, screen on, 1 ms naps. Never sleeps or draws: readings come first.
+#   AWAKE      screen on, 20 ms naps. Lasts SCREEN_OFF_MS after the last press.
+#   DARK       screen and backlight off, CPU in light sleep. Button A wakes it at once.
+#   OFF        deep sleep after DEEP_SLEEP_MS dark. Button A reboots into "Ready" (~3 s).
+#              Sets are safe on flash.
+# Wi-Fi and Bluetooth are off in every state; the uploader turns Wi-Fi on only while syncing.
+#
+# Safety:
+#   - Sleep needs button A's GPIO to wake the chip. The watch learns it from your first
+#     press and saves it. Until then it only naps, it never sleeps.
+#   - Sleeping drops the USB link to Thonny. Hold button B while it boots to stay awake.
 import os
 import M5
 import time
 import machine
+import esp32
 from recorder import Recorder
 
 BLACK = 0x000000
@@ -15,26 +24,28 @@ WHITE = 0xFFFFFF
 GREY  = 0x888888
 RED   = 0xFF5A52
 GREEN = 0x30C080
-BATTERY_EVERY_MS = 30000    # refresh the battery line while idle (screen on only)
-SCREEN_OFF_MS = 20000       # screen off after 20 s idle (was 60 s; backlight is the #1 drain)
-DEEP_SLEEP_MS = 10 * 60000  # deep sleep after 10 min idle; a press reboots into "Ready"
-LIGHT_SLEEP_MS = 2000       # max nap while dark; the button wakes it early
-BRIGHTNESS = 64             # was 128; plenty indoors, roughly halves backlight current
+BATTERY_EVERY_MS = 30000    # refresh the battery line (screen on only)
+SCREEN_OFF_MS = 20000       # AWAKE -> DARK; the backlight is the #1 drain
+DEEP_SLEEP_MS = 10 * 60000  # DARK -> OFF
+LIGHT_SLEEP_MS = 2000       # longest nap while DARK; button A ends it early
+BRIGHTNESS = 64             # plenty indoors, roughly half the backlight current of 128
 LOW_BATTERY = 20            # percent; shown in red below this
 LOW_SPACE = 10
-# GPIO of button A. Leave None until you've found it with the pin-finder snippet.
-# None = no light/deep sleep (safe). Must be 0-21 on the ESP32-S3 to wake the chip.
-BTN_A_PIN = None
+LIGHT_SLEEP = True          # set False if the screen lights up or the watch misbehaves while DARK
+DEEP_SLEEP = True           # set False to never go OFF
+BTN_A_CANDIDATES = (11, 12) # StickS3 buttons are on G11 and G12; the first press shows which is A
+RELEASE_MS = 150            # after a wake press, ignore the button until it has been up this long
 
 M5.begin()
 lcd = M5.Lcd
 lcd.setRotation(1)
 lcd.setTextSize(2)
 machine.freq(80000000)
+nvs = esp32.NVS("gymbuddy")
 
 
 def radios_off():
-    # Wi-Fi and BLE stay off until the uploader needs them; both cost tens of mA just sitting idle.
+    # Both cost tens of mA just sitting idle.
     try:
         import network
         network.WLAN(network.STA_IF).active(False)
@@ -49,7 +60,7 @@ def radios_off():
 
 
 def on_usb():
-    # Sleeping kills the USB serial link, so stay awake while plugged in for development.
+    # Sleeping kills the USB serial link, so stay awake while charging.
     try:
         return M5.Power.isCharging()
     except Exception:
@@ -72,23 +83,46 @@ def screen_wake():
     lcd.setBrightness(BRIGHTNESS)
 
 
-def setup_wake_pin():
-    # Arm button A as a wake source for both light and deep sleep.
-    # Returns the Pin, or None if sleep must stay off.
-    if BTN_A_PIN is None or not (0 <= BTN_A_PIN <= 21):
-        return None
+def arm_wake_pin(number):
+    # Button A (pressed = low) wakes the chip from light and deep sleep.
+    pin = machine.Pin(number, machine.Pin.IN, machine.Pin.PULL_UP)
+    esp32.wake_on_ext0(pin=pin, level=0)
+    return pin
+
+
+def saved_wake_pin():
+    # The pin learned on an earlier boot, armed. None if not learned yet.
     try:
-        import esp32
-        pin = machine.Pin(BTN_A_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
-        esp32.wake_on_ext0(pin=pin, level=0)    # wake when pressed (pulled low)
+        return arm_wake_pin(nvs.get_i32("btn_a_pin"))
+    except Exception:
+        return None
+
+
+def learn_wake_pin():
+    # Call while button A is held: the one candidate that reads low is button A.
+    low = []
+    for number in BTN_A_CANDIDATES:
+        try:
+            if machine.Pin(number, machine.Pin.IN, machine.Pin.PULL_UP).value() == 0:
+                low.append(number)
+        except Exception:
+            pass
+    if len(low) != 1:
+        return None             # unclear; try again on the next press
+    try:
+        pin = arm_wake_pin(low[0])
+        nvs.set_i32("btn_a_pin", low[0])
+        nvs.commit()
         return pin
     except Exception:
         return None
 
 
-def go_deep_sleep():
-    screen_sleep()
-    machine.deepsleep()         # only called when the wake pin is armed
+def woke_by_pin():
+    try:
+        return machine.wake_reason() == getattr(machine, "EXT0_WAKE", 2)
+    except Exception:
+        return False
 
 
 def battery_percent():
@@ -136,55 +170,80 @@ def show_saved(info):
 
 
 radios_off()
-wake_pin = setup_wake_pin()
+M5.update()
+stay_awake = M5.BtnB.isPressed()            # held at boot: no sleep, Thonny stays connected
+wake_pin = saved_wake_pin()
 rec = Recorder()
-show(["Ready", "A: start set"])
-last_battery = time.ticks_ms()
-last_activity = time.ticks_ms()
+show(["Ready", "A: start set", "no sleep (B held)" if stay_awake else ""])
 screen_wake()
 screen_on = True
-woke_by_button = False
+last_battery = time.ticks_ms()
+last_activity = time.ticks_ms()
+dark_ms = 0                                 # time spent DARK, counted nap by nap
+wake_press = False                          # a press ended a nap; it only wakes the screen
+quiet_until = None                          # ignoring the button until that wake press is released
 
 while True:
     M5.update()
     now = time.ticks_ms()
-    if M5.BtnA.wasPressed() or woke_by_button:
-        woke_by_button = False
+    pressed = M5.BtnA.wasPressed()
+
+    if quiet_until is not None:
+        # The press that woke us must not also start a set once the debounce catches up.
+        pressed = False
+        if wake_pin.value() == 0:
+            quiet_until = time.ticks_add(now, RELEASE_MS)
+        elif time.ticks_diff(now, quiet_until) >= 0:
+            quiet_until = None
+
+    if pressed and wake_pin is None:
+        wake_pin = learn_wake_pin()         # first press ever: find button A's GPIO
+
+    if pressed or wake_press:
         last_activity = now
+        dark_ms = 0
         if not screen_on:
             screen_wake()                   # first press only wakes the screen
             screen_on = True
-        elif rec.recording:
+            last_battery = time.ticks_add(now, -BATTERY_EVERY_MS)   # redraw the status line now
+        elif pressed and rec.recording:
             show_saved(rec.stop())
-        else:
+        elif pressed:
             show(["REC", "A: stop"], RED)   # draw before the set starts
             rec.start()
+        wake_press = False
+
     info = rec.poll()
     if info:                                # the 2-minute limit stopped it
         show_saved(info)
         last_activity = time.ticks_ms()
 
-    if rec.recording:
-        time.sleep_ms(1)                    # never draw or sleep during a set: it would delay readings
+    if rec.recording:                       # RECORDING
+        time.sleep_ms(1)
         continue
 
-    idle = time.ticks_diff(now, last_activity)
-    if screen_on:
-        # Only redraw while someone can see it.
+    if screen_on:                           # AWAKE
         if time.ticks_diff(now, last_battery) >= BATTERY_EVERY_MS:
             lcd.fillRect(0, 108, lcd.width(), 27, BLACK)
             draw_battery()
             draw_status()
             last_battery = now
-        if idle >= SCREEN_OFF_MS:
+        if time.ticks_diff(now, last_activity) >= SCREEN_OFF_MS:
             screen_sleep()
             screen_on = False
+            dark_ms = 0
         time.sleep_ms(20)
-    elif wake_pin is None or on_usb():
-        time.sleep_ms(20)                   # no safe wake source, or plugged in: plain polling
-    elif idle >= DEEP_SLEEP_MS:
-        go_deep_sleep()                     # a press reboots into "Ready"
+        continue
+
+    # DARK
+    if wake_pin is None or stay_awake or not LIGHT_SLEEP or on_usb():
+        time.sleep_ms(20)                   # no safe way to sleep: plain polling, screen still off
+        continue
+    if DEEP_SLEEP and dark_ms >= DEEP_SLEEP_MS:
+        machine.deepsleep()                 # OFF; button A reboots us
+    machine.lightsleep(LIGHT_SLEEP_MS)
+    if wake_pin.value() == 0 or woke_by_pin():
+        wake_press = True
+        quiet_until = time.ticks_add(time.ticks_ms(), RELEASE_MS)
     else:
-        machine.lightsleep(LIGHT_SLEEP_MS)  # dark and idle; button A wakes it immediately
-        if wake_pin.value() == 0:           # still held from the press that woke us
-            woke_by_button = True           # count it even though wasPressed() missed the edge
+        dark_ms += LIGHT_SLEEP_MS
