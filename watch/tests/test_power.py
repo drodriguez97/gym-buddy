@@ -74,6 +74,62 @@ def test_nothing_is_drawn_while_dark():
     assert set(r.between(dark_from + 0.1, 120)) == {"light sleep"}
 
 
+# ---- button B: sync
+
+def test_button_b_syncs_and_shows_the_result():
+    r = run(b_presses=[press(5)], run_for_s=15, saved_pin=11)
+    assert len(r.times("sync")) == 1 and 5.0 <= r.times("sync")[0] < 5.3
+    assert "screen: Syncing..." in r.between(5, 6)
+    assert "screen: Synced 2" in r.between(9, 10) and "screen: nothing left" in r.between(9, 10)
+
+
+def test_sync_turns_the_radios_off_afterwards():
+    r = run(b_presses=[press(5)], run_for_s=15, saved_pin=11)
+    assert "radios off" in r.between(9, 10)
+
+
+def test_sets_left_behind_are_shown_with_the_reason():
+    r = run(b_presses=[press(5)], run_for_s=15, saved_pin=11, sync_result=(1, 3, "no server"))
+    after = r.between(9, 10)
+    assert "screen: Synced 1" in after and "screen: 3 left" in after and "screen: no server" in after
+
+
+def test_a_crashing_sync_shows_an_error_and_recording_still_works():
+    # e.g. config.py missing on the watch
+    r = run(b_presses=[press(5)], presses=[press(8), press(10)], run_for_s=15, saved_pin=11,
+            sync_result=ImportError("no module named 'config'"))
+    assert "screen: Sync failed" in r.between(5, 6) and "screen: ImportError" in r.between(5, 6)
+    assert len(r.times("recording start")) == 1 and len(r.times("recording stop")) == 1
+
+
+def test_button_b_does_nothing_during_a_set():
+    r = run(presses=[press(1), press(10)], b_presses=[press(5)], run_for_s=12, saved_pin=11)
+    assert not r.has("sync")
+    assert r.between(1.5, 10) == []
+
+
+def test_button_b_does_nothing_while_the_screen_is_off():
+    r = run(b_presses=[press(40)], run_for_s=45, saved_pin=11, b_held=True, b_held_s=1)
+    assert not r.has("sync")
+
+
+def test_sync_keeps_the_screen_on_for_another_20_s():
+    r = run(b_presses=[press(15)], run_for_s=60, saved_pin=11)
+    off = r.times("backlight off")
+    assert len(off) == 1 and 39.0 <= off[0] < 39.6     # 15 s + 4 s sync + 20 s
+
+
+def test_holding_b_at_boot_is_dev_mode_not_a_sync():
+    r = run(run_for_s=10, saved_pin=11, b_held=True, b_held_s=2)
+    assert "screen: no sleep (B held)" in r.between(0, 1)
+    assert not r.has("sync")
+
+
+def test_b_syncs_normally_after_the_boot_hold_is_released():
+    r = run(b_presses=[press(5)], run_for_s=12, saved_pin=11, b_held=True, b_held_s=2)
+    assert len(r.times("sync")) == 1
+
+
 # ---- waking up
 
 def test_wake_press_only_wakes_the_screen():

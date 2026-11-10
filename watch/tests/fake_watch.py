@@ -6,7 +6,7 @@ the file, and returns what happened as a list of (seconds, event) pairs.
 
 Events: "backlight on", "backlight off", "screen: <text>", "status line",
 "recording start", "recording stop", "light sleep", "woke by button",
-"deep sleep", "pin saved <n>".
+"deep sleep", "pin saved <n>", "sync", "radios off".
 """
 import sys
 import types
@@ -31,9 +31,11 @@ class Result:
 
 
 def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
-        a_gpio=11, edit=None):
+        a_gpio=11, edit=None, b_presses=(), b_held_s=None, sync_result=(2, 0, None)):
     """presses: (down_s, up_s) pairs for button A. a_gpio: the GPIO it is really on.
-    edit: function applied to main.py's source first, e.g. to flip a setting."""
+    b_presses: the same for button B. b_held: B is down at boot (for the whole run,
+    or for b_held_s seconds). sync_result: what the fake sync returns, or an
+    exception for it to raise. edit: function applied to main.py's source first."""
     clock = [0]                             # virtual milliseconds
     events = []
     armed = []
@@ -43,6 +45,11 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
 
     def held():
         return any(down * 1000 <= clock[0] < up * 1000 for down, up in presses)
+
+    def b_down():
+        if b_held and (b_held_s is None or clock[0] < b_held_s * 1000):
+            return True
+        return any(down * 1000 <= clock[0] < up * 1000 for down, up in b_presses)
 
     class Stop(Exception):
         pass
@@ -85,27 +92,28 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
         def __getattr__(self, name):        # fillScreen, setTextColor, sleep, wakeup, ...
             return lambda *args: None
 
-    class ButtonA:
+    class Button:
         # Debounced like the real one: the press shows up 3 updates late.
-        def __init__(self):
+        def __init__(self, down):
+            self.down = down
             self.history = [False] * 3
             self.was = False
 
         def tick(self):
             before = all(self.history)
-            self.history = self.history[1:] + [held()]
+            self.history = self.history[1:] + [self.down()]
             self.was = all(self.history) and not before
 
         def wasPressed(self):
             return self.was
 
         def isPressed(self):
-            return all(self.history)
+            return self.down()
 
     M5 = types.ModuleType("M5")
     M5.Lcd = Lcd()
-    M5.BtnA = ButtonA()
-    M5.BtnB = types.SimpleNamespace(isPressed=lambda: b_held)
+    M5.BtnA = Button(held)
+    M5.BtnB = Button(b_down)                # held at boot still reports "was pressed": the worst case
     M5.Power = types.SimpleNamespace(isCharging=lambda: charging, getBatteryLevel=lambda: 80)
     M5.begin = lambda: None
 
@@ -114,6 +122,7 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
             raise Stop
         clock[0] += 1                       # a pass of the loop takes time, so no bug can freeze the clock
         M5.BtnA.tick()
+        M5.BtnB.tick()
     M5.update = update
 
     # ---- machine
@@ -195,8 +204,34 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
 
     recorder.Recorder = Recorder
 
+    # ---- sync, network
+    fake_sync = types.ModuleType("sync")
+
+    def sync(report=None):
+        say("sync")
+        if isinstance(sync_result, Exception):
+            raise sync_result
+        if report:
+            report("set 1 of 2")
+        clock[0] += 4000                    # a sync takes a few seconds
+        return sync_result
+    fake_sync.sync = sync
+
+    network = types.ModuleType("network")
+
+    class WLAN:
+        def __init__(self, interface):
+            pass
+
+        def active(self, on):
+            if not on:
+                say("radios off")
+    network.WLAN = WLAN
+    network.STA_IF = 0
+    network.AP_IF = 1
+
     fakes = {"time": fake_time, "os": fake_os, "M5": M5, "machine": machine,
-             "esp32": esp32, "recorder": recorder}
+             "esp32": esp32, "recorder": recorder, "sync": fake_sync, "network": network}
     source = MAIN.read_text(encoding="utf-8")
     if edit:
         source = edit(source)

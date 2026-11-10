@@ -6,7 +6,9 @@
 #   DARK       screen and backlight off, CPU in light sleep. Button A wakes it at once.
 #   OFF        deep sleep after DEEP_SLEEP_MS dark. Button A reboots into "Ready" (~3 s).
 #              Sets are safe on flash.
-# Wi-Fi and Bluetooth are off in every state; the uploader turns Wi-Fi on only while syncing.
+# Wi-Fi and Bluetooth are off in every state; a sync turns Wi-Fi on and off again.
+#
+# Button B (screen on, not recording) uploads the saved sets: see sync.py.
 #
 # Safety:
 #   - Sleep needs button A's GPIO to wake the chip. The watch learns it from your first
@@ -169,12 +171,29 @@ def show_saved(info):
           "%.1f Hz late %d" % (info["rate_hz"], info["late"])], GREEN)
 
 
+def run_sync():
+    # Upload the saved sets and show the result. Takes seconds; never called during a set.
+    show(["Syncing...", ""])
+    try:
+        import sync             # here, not at the top: recording must work without config.py
+        sent, left, problem = sync.sync(lambda text: show(["Syncing...", text]))
+    except Exception as e:
+        show(["Sync failed", type(e).__name__], RED)
+        radios_off()
+        return
+    radios_off()
+    if left == 0 and not problem:
+        show(["Synced %d" % sent, "nothing left"], GREEN)
+    else:
+        show(["Synced %d" % sent, "%d left" % left, problem or ""], RED)
+
+
 radios_off()
 M5.update()
 stay_awake = M5.BtnB.isPressed()            # held at boot: no sleep, Thonny stays connected
 wake_pin = saved_wake_pin()
 rec = Recorder()
-show(["Ready", "A: start set", "no sleep (B held)" if stay_awake else ""])
+show(["Ready", "A: set  B: sync", "no sleep (B held)" if stay_awake else ""])
 screen_wake()
 screen_on = True
 last_battery = time.ticks_ms()
@@ -182,6 +201,7 @@ last_activity = time.ticks_ms()
 dark_ms = 0                                 # time spent DARK, counted nap by nap
 wake_press = False                          # a press ended a nap; it only wakes the screen
 quiet_until = None                          # ignoring the button until that wake press is released
+b_ready = not stay_awake                    # B held at boot means "stay awake", not "sync"
 
 while True:
     M5.update()
@@ -212,6 +232,14 @@ while True:
             show(["REC", "A: stop"], RED)   # draw before the set starts
             rec.start()
         wake_press = False
+
+    if not b_ready:
+        b_ready = not M5.BtnB.isPressed()   # wait for the boot-time hold to end
+    elif M5.BtnB.wasPressed() and screen_on and not rec.recording:
+        run_sync()
+        last_activity = time.ticks_ms()
+        last_battery = last_activity
+        continue
 
     info = rec.poll()
     if info:                                # the 2-minute limit stopped it
