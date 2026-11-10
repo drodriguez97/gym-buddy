@@ -6,7 +6,7 @@ the file, and returns what happened as a list of (seconds, event) pairs.
 
 Events: "backlight on", "backlight off", "screen: <text>", "status line",
 "recording start", "recording stop", "light sleep", "woke by button",
-"deep sleep", "pin saved <n>", "sync", "radios off".
+"deep sleep", "pin saved <n>", "sync", "radios off", "flash measured".
 """
 import sys
 import types
@@ -66,7 +66,12 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
 
     # ---- os
     fake_os = types.ModuleType("os")
-    fake_os.statvfs = lambda path: (4096, 0, 1000, 0, 900)
+
+    def statvfs(path):
+        say("flash measured")
+        clock[0] += 480                     # as slow as the real one (timing_check.py)
+        return (4096, 0, 1000, 0, 900)
+    fake_os.statvfs = statvfs
 
     # ---- M5
     class Lcd:
@@ -194,10 +199,17 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
             self.recording = True
             say("recording start")
 
-        def stop(self):
+        def halt(self):
             self.recording = False
             say("recording stop")
+
+        def save(self):
+            clock[0] += 300                 # writing the set to flash
             return {"set_id": "00030-abcdef", "count": 500, "rate_hz": 100.0, "late": 0}
+
+        def stop(self):
+            self.halt()
+            return self.save()
 
         def poll(self):
             return None

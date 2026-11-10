@@ -136,9 +136,22 @@ def battery_percent():
     return pct if pct >= 0 else None
 
 
-def percent_free():
+flash_total = 1                             # bytes; set by measure_flash()
+flash_free = 0
+
+
+def measure_flash():
+    # Asking the flash how full it is takes about half a second (measured with
+    # timing_check.py), so it is only done at boot and after a sync. In between,
+    # percent_free() subtracts what each set used.
+    global flash_total, flash_free
     s = os.statvfs("/flash")
-    return 100 * s[4] // s[2]
+    flash_total = s[0] * s[2]
+    flash_free = s[0] * s[4]
+
+
+def percent_free():
+    return 100 * max(flash_free, 0) // flash_total
 
 
 def draw_battery():
@@ -166,6 +179,8 @@ def show(lines, color=WHITE):
 
 
 def show_saved(info):
+    global flash_free
+    flash_free -= info["count"] * 12 + 8192     # the readings, plus room for the .json and block rounding
     show(["Saved #" + info["set_id"][:5],
           "%d readings" % info["count"],
           "%.1f Hz late %d" % (info["rate_hz"], info["late"])], GREEN)
@@ -182,6 +197,7 @@ def run_sync():
         radios_off()
         return
     radios_off()
+    measure_flash()                         # sets were deleted; a sync takes seconds anyway
     if left == 0 and not problem:
         show(["Synced %d" % sent, "nothing left"], GREEN)
     else:
@@ -193,6 +209,7 @@ M5.update()
 stay_awake = M5.BtnB.isPressed()            # held at boot: no sleep, Thonny stays connected
 wake_pin = saved_wake_pin()
 rec = Recorder()
+measure_flash()
 show(["Ready", "A: set  B: sync", "no sleep (B held)" if stay_awake else ""])
 screen_wake()
 screen_on = True
@@ -227,7 +244,9 @@ while True:
             screen_on = True
             last_battery = time.ticks_add(now, -BATTERY_EVERY_MS)   # redraw the status line now
         elif pressed and rec.recording:
-            show_saved(rec.stop())
+            rec.halt()                      # stop taking readings first, then draw
+            show(["Saving..."], GREEN)
+            show_saved(rec.save())
         elif pressed:
             show(["REC", "A: stop"], RED)   # draw before the set starts
             rec.start()

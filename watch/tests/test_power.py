@@ -168,6 +168,27 @@ def test_a_long_set_never_sleeps_or_draws():
     assert r.times("recording stop")[0] < 91.3
 
 
+# ---- nothing slow where a press is waiting
+
+def test_flash_is_measured_at_boot_and_after_a_sync_only():
+    # Measuring free space takes half a second. Never on a button press, a set
+    # stopping, or the 30 s status refresh.
+    r = run(presses=[press(2), press(8), press(12), press(16)], b_presses=[press(25)],
+            run_for_s=60, saved_pin=11, b_held=True, b_held_s=0.2)
+    measured = r.times("flash measured")
+    assert len(measured) == 2
+    assert measured[0] < 1 and 29 <= measured[1] < 30       # boot, and the end of the sync
+
+
+def test_stopping_a_set_halts_readings_before_drawing():
+    r = run(presses=[press(1), press(6)], run_for_s=10, saved_pin=11)
+    # Order, not time: these can land on the same millisecond.
+    order = [e for t, e in r.events]
+    stop = order.index("recording stop")
+    assert stop < order.index("screen: Saving...") < order.index("screen: Saved #00030")
+    assert not [e for e in order[order.index("recording start") + 1:stop] if e != "recording stop"]
+
+
 # ---- when it must stay awake
 
 def test_no_sleep_until_the_pin_is_known():
