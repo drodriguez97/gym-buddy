@@ -3,88 +3,320 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0B0B0C">
+<meta name="theme-color" content="#0B0B0C" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <title>Gym Buddy</title>
 <style>
-  /* One column, phone first. One question per screen, with the answer on top.
-     Colours mean the same as on the watch: green = good, amber = needs a look, orange = effort or trouble. */
+  /* Phone first. One question per screen, with the answer on top.
+     Colours mean the same as on the watch: green = good, amber = needs a look, orange = effort or trouble.
+     A colour never stands alone: there is always a word, a number or an icon next to it.
+
+     Every colour and size is a named value (a "custom property") defined once here.
+     The dark theme is the default; the light theme further down only swaps the values. */
   :root {
-    --bg: #0B0B0C; --card: #1C1C1E; --chip: #2A2A2D; --line: #2A2A2D;
-    --text: #F5F5F7; --muted: #9A9AA0;
-    --good: #7CFF6B; --wait: #FFC233; --effort: #FF8A4C; --effort-bg: #4A2A18; --effort-text: #FFB48A;
+    --bg: #0B0B0C; --card: #1C1C1E; --raised: #2A2A2D; --raised-2: #36363A; --line: rgba(255, 255, 255, 0.09);
+    --text: #F5F5F7; --muted: #A3A3AB;
+    --good: #7CFF6B; --good-text: #7CFF6B; --good-bg: #17301A; --on-good: #0B0B0C;
+    --wait: #FFC233; --wait-text: #FFC233; --wait-bg: #382C0E; --on-wait: #0B0B0C;
+    --effort: #FF8A4C; --effort-text: #FFB48A; --effort-bg: #45281A; --on-effort: #0B0B0C;
+    --hero-glow: rgba(124, 255, 107, 0.11); --bar-dim: 0.8; --bar-bg: rgba(11, 11, 12, 0.78);
+    --card-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    --watch-body: #3A3A3F; --watch-strap: #2C2C30; --focus: #7CFF6B;
+    --r-card: 22px; --r-chip: 14px; --gap: 16px;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     color-scheme: dark;
   }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #F2F2F7; --card: #FFFFFF; --raised: #EFEFF4; --raised-2: #E3E3EA; --line: rgba(0, 0, 0, 0.09);
+      --text: #1C1C1E; --muted: #5C5C66;
+      /* The watch's bright green is unreadable on white, so the light theme uses darker shades of the same three colours. */
+      --good: #1E9E3A; --good-text: #17722A; --good-bg: #E2F5E5; --on-good: #FFFFFF;
+      --wait: #B77700; --wait-text: #835400; --wait-bg: #FFF0C7; --on-wait: #FFFFFF;
+      --effort: #D9541A; --effort-text: #A63C0A; --effort-bg: #FFE5D6; --on-effort: #FFFFFF;
+      --hero-glow: rgba(30, 158, 58, 0.10); --bar-dim: 0.9; --bar-bg: rgba(250, 250, 252, 0.82);
+      --card-shadow: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05);
+      --watch-body: #2A2A2E; --watch-strap: #C4C4CC; --focus: #17722A;
+      color-scheme: light;
+    }
+  }
+
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text); }
-  body { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
-         -webkit-text-size-adjust: 100%; }
-  .wrap { max-width: 480px; margin: 0 auto; min-height: 100vh;
-          padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-                   calc(76px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-          display: flex; flex-direction: column; gap: 14px; }
-  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 32px; }
-  h1 { font-size: 20px; font-weight: 600; margin: 0; }
-  main { display: flex; flex-direction: column; gap: 14px; }
-  .status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; text-align: right;
-            background: none; padding: 6px 0; min-height: 32px; }
+  body { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+         -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; background: none; padding: 0; }
+  h1, h2, p { margin: 0; }
+  svg { display: block; flex: none; }
+  [hidden] { display: none !important; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .num { font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Roboto, system-ui, sans-serif;
+         font-variant-numeric: tabular-nums; }
+
+  /* The page frame: header, the screen itself, and the bar at the bottom. */
+  .app { max-width: 560px; margin: 0 auto; min-height: 100vh; min-height: 100dvh;
+         padding: max(8px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+                  calc(88px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+         display: flex; flex-direction: column; gap: 8px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 48px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; }
+  .status { min-height: 44px; display: flex; align-items: center; border-radius: 22px; min-width: 0; }
+  .pill { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 10px; border-radius: 16px;
+          background: var(--card); box-shadow: var(--card-shadow); font-size: 13px; color: var(--muted); white-space: nowrap;
+          overflow: hidden; text-overflow: ellipsis; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
   .dot.warn { background: var(--wait); }
   .dot.fail { background: var(--effort); }
-  .hero { font-size: 64px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
-  .hero small { font-size: 18px; font-weight: 400; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+  .banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px;
+            background: var(--effort-bg); color: var(--text); font-size: 14px; }
+  .banner svg { color: var(--effort-text); }
+  .view { display: flex; flex-direction: column; gap: var(--gap); }
+  .cols, .stack, .list { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 1fr); align-content: start; }
+
+  /* Small building blocks used on every screen. */
+  .eyebrow { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
   .muted { color: var(--muted); font-size: 14px; }
-  .card { background: var(--card); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-  .card h2 { font-size: 16px; font-weight: 600; margin: 0; }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  button { font: inherit; color: inherit; border: 0; cursor: pointer; }
-  .chip { min-width: 48px; min-height: 44px; padding: 0 12px; border-radius: 10px; background: var(--chip);
-          font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .chip.unknown { color: var(--muted); }
-  .chip.slowed { background: var(--effort-bg); color: var(--effort-text); }
-  .chip:active { transform: scale(0.97); }
-  .link { background: none; padding: 10px 0; min-height: 44px; color: var(--muted); font-size: 15px; text-align: left; }
-  .day { display: flex; justify-content: space-between; align-items: center; width: 100%; background: none;
-         padding: 12px 0; min-height: 44px; border-top: 1px solid var(--line); font-size: 15px; text-align: left; gap: 12px; }
-  .day span:last-child { color: var(--muted); font-size: 14px; flex: none; }
-  .bars { display: flex; align-items: flex-end; gap: 8px; height: 120px; }
-  .bar { flex: 1; border-radius: 5px 5px 0 0; min-height: 4px; background: var(--good); }
-  .scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
-  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  select { font: inherit; color: var(--text); background: var(--chip); border: 0; border-radius: 10px;
-           padding: 0 12px; min-height: 44px; max-width: 60%; }
   .note { font-size: 14px; color: var(--muted); }
   .note.effort { color: var(--effort-text); }
-  .note.good { color: var(--good); }
-  .empty { text-align: center; padding: 48px 8px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
-  .empty h2 { font-size: 20px; margin: 8px 0 0; }
-  .check { display: flex; gap: 12px; align-items: flex-start; }
-  .check + .check { border-top: 1px solid var(--line); padding-top: 10px; }
-  .mark { width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center;
-          font-size: 13px; font-weight: 700; background: var(--good); color: #0B0B0C; margin-top: 1px; }
-  .mark.warn { background: var(--wait); }
-  .mark.fail { background: var(--effort); }
-  .check .body { flex: 1; min-width: 0; }
-  .check .value { color: var(--muted); font-size: 14px; text-align: right; flex: none; max-width: 50%; }
-  nav { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line);
-        padding-bottom: env(safe-area-inset-bottom); }
-  nav div { max-width: 480px; margin: 0 auto; display: flex; }
-  nav button { flex: 1; min-height: 56px; background: none; color: var(--muted); font-size: 13px; }
-  nav button[aria-current="page"] { color: var(--good); font-weight: 600; }
-  :focus-visible { outline: 2px solid var(--good); outline-offset: 2px; }
-  @media (prefers-reduced-motion: reduce) { .chip:active { transform: none; } }
+  .foot { font-size: 13px; color: var(--muted); padding: 0 4px; display: flex; gap: 8px; align-items: flex-start; }
+  .foot svg { margin-top: 1px; }
+  .card { background: var(--card); border-radius: var(--r-card); padding: 16px; box-shadow: var(--card-shadow);
+          display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .card h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .card-head .muted { font-size: 13px; text-align: right; }
+
+  /* The big number at the top of Today and of a set. */
+  .hero { background: radial-gradient(120% 130% at 0% 0%, var(--hero-glow), transparent 62%), var(--card); padding: 20px; gap: 16px; }
+  .big { display: flex; align-items: baseline; gap: 8px; line-height: 0.95; }
+  .big .num { font-size: 88px; font-weight: 700; letter-spacing: -0.035em; }
+  .big .unit { font-size: 20px; font-weight: 500; color: var(--muted); }
+  .stats { display: flex; border-top: 1px solid var(--line); padding-top: 14px; }
+  .stat { flex: 1; display: flex; flex-direction: column; gap: 2px; padding-left: 14px; border-left: 1px solid var(--line); min-width: 0; }
+  .stat:first-child { padding-left: 0; border-left: 0; }
+  .stat .v { font-size: 20px; font-weight: 650; line-height: 1.2; white-space: nowrap; }
+  .stat .v small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+  .stat .l { font-size: 12px; color: var(--muted); }
+
+  /* One tappable square per set: the reps on top, which set it was underneath. */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { position: relative; min-width: 58px; min-height: 60px; padding: 8px 10px 7px; border-radius: var(--r-chip); background: var(--raised);
+          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+          transition: transform 0.15s var(--ease), background-color 0.15s; }
+  .chip .n { font-size: 22px; font-weight: 650; line-height: 1; }
+  .chip .k { font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1.2; white-space: nowrap; }
+  .chip.unknown .n { color: var(--muted); }
+  .chip.slowed { background: var(--effort-bg); }
+  .chip.slowed .n, .chip.slowed .k { color: var(--effort-text); }
+  .chip .flag { position: absolute; top: 5px; right: 5px; color: var(--effort-text); }
+  .chip:active, .rowlink:active, .back:active { transform: scale(0.96); }
+  @media (hover: hover) {
+    .chip:not(.slowed):hover { background: var(--raised-2); }
+    .rowlink:hover, .back:hover { background: var(--raised); }
+    nav button:hover { color: var(--text); }
+  }
+
+  /* A sentence that deserves attention: an icon in a circle, then the words. */
+  .callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--raised);
+             font-size: 14px; line-height: 1.35; }
+  .callout .ci { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
+                 background: var(--raised-2); color: var(--muted); }
+  .callout.good { background: var(--good-bg); }
+  .callout.good .ci { background: var(--good); color: var(--on-good); }
+  .callout.effort { background: var(--effort-bg); }
+  .callout.effort .ci { background: var(--effort); color: var(--on-effort); }
+
+  /* A list of tappable rows inside a card (other workouts, set details, watch checks). */
+  .rows { padding: 4px 6px; gap: 0; }
+  .rowlink { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 56px;
+             padding: 8px 6px 8px 10px; border-radius: 12px; text-align: left; font-size: 15px;
+             transition: transform 0.15s var(--ease), background-color 0.15s; }
+  .rowlink { position: relative; }
+  .rowlink + .rowlink::before { content: ""; position: absolute; left: 10px; right: 6px; top: 0; border-top: 1px solid var(--line); }
+  .rowlink .sub { display: block; color: var(--muted); font-size: 13px; }
+  .rowlink svg { color: var(--muted); }
+  .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 10px; font-size: 15px; }
+  .kv + .kv { border-top: 1px solid var(--line); }
+  .kv span:first-child { color: var(--muted); }
+  .kv span:last-child { text-align: right; }
+  .back { align-self: flex-start; display: flex; align-items: center; gap: 2px; min-height: 44px; padding: 0 14px 0 6px; margin: -4px 0 -4px -6px;
+          border-radius: 22px; font-size: 16px; font-weight: 500; color: var(--muted);
+          transition: transform 0.15s var(--ease), background-color 0.15s; }
+
+  /* The pace chart. Each bar is one gap between reps; the dashed line is the set's usual pace. */
+  .chart { display: flex; flex-direction: column; gap: 6px; }
+  .plot { position: relative; height: 150px; margin-top: 22px; display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
+  .col { position: relative; flex: 1; min-width: 0; height: 100%; }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; margin: 0 auto; width: 100%; max-width: 44px; min-height: 4px;
+         border-radius: 7px 7px 0 0; background: var(--good); opacity: var(--bar-dim); transform-origin: bottom; }
+  .bar.slow { background: var(--wait); }
+  .bar.slower { background: var(--effort); }
+  .val { position: absolute; left: -8px; right: -8px; text-align: center; font-size: 12px; color: var(--muted);
+         font-variant-numeric: tabular-nums; margin-bottom: 4px; z-index: 1; }
+  .val span { background: var(--card); border-radius: 4px; padding: 0 3px; }   /* so the dashed line never runs through a number */
+  .col.last .bar { opacity: 1; }
+  .col.last .val { color: var(--text); font-weight: 700; font-size: 13px; }
+  .ref { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed var(--text); opacity: 0.5; pointer-events: none; }
+  .axis { display: flex; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .axis span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; }
+  .axis .last { color: var(--text); font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); padding-top: 6px; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--good); flex: none; }
+  .legend i.slow { background: var(--wait); }
+  .legend i.slower { background: var(--effort); }
+  .legend i.dash { width: 16px; height: 0; border-radius: 0; background: none; border-top: 2px dashed var(--text); opacity: 0.5; }
+
+  /* The exercise picker. The browser's own arrow is hidden and ours is drawn on top, so it looks the same everywhere. */
+  .field { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .field label { font-size: 15px; font-weight: 600; }
+  .pick { position: relative; max-width: 65%; }
+  .pick select { font: inherit; font-size: 15px; color: var(--text); background: var(--raised); border: 0; border-radius: 12px;
+                 padding: 0 36px 0 14px; min-height: 44px; max-width: 100%; appearance: none; -webkit-appearance: none; cursor: pointer; }
+  .pick svg { position: absolute; right: 10px; top: 50%; margin-top: -9px; color: var(--muted); pointer-events: none; }
+
+  /* Watch screen: the buddy, a strip with one segment per check, then the checks. */
+  .buddy-card { flex-direction: row; align-items: center; gap: 16px; padding: 20px; }
+  .buddy-card .title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+  .buddy-card .words { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+  .meter { display: flex; gap: 4px; margin-top: 6px; }
+  .meter i { flex: 1; height: 6px; border-radius: 3px; background: var(--good); max-width: 28px; }
+  .meter i.warn { background: var(--wait); }
+  .meter i.fail { background: var(--effort); }
+  .check { display: flex; gap: 12px; align-items: flex-start; padding: 13px 10px; }
+  .check + .check { border-top: 1px solid var(--line); }
+  .mark { width: 24px; height: 24px; border-radius: 50%; flex: none; display: grid; place-items: center;
+          background: var(--good); color: var(--on-good); margin-top: -1px; }
+  .mark.warn { background: var(--wait); color: var(--on-wait); }
+  .mark.fail { background: var(--effort); color: var(--on-effort); }
+  .check .body { flex: 1; min-width: 0; font-size: 15px; display: flex; flex-direction: column; gap: 2px; }
+  .check .help { font-size: 14px; color: var(--muted); }
+  .check .help.warn { color: var(--wait-text); }
+  .check .help.fail { color: var(--effort-text); }
+  .check .value { color: var(--muted); font-size: 14px; text-align: right; flex: none; max-width: 50%; font-variant-numeric: tabular-nums; }
+
+  /* Nothing to show yet, or the server is out of reach. */
+  .empty { text-align: center; padding: 40px 12px 8px; display: flex; flex-direction: column; gap: 10px; align-items: center;
+           width: 100%; max-width: 420px; margin: 0 auto; }
+  .empty h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-top: 12px; }
+  .empty p { color: var(--muted); font-size: 15px; max-width: 32ch; }
+  .steps { align-self: stretch; text-align: left; margin-top: 16px; padding: 6px 16px; gap: 0; }
+  .step { display: flex; align-items: center; gap: 12px; padding: 12px 0; font-size: 15px; }
+  .step + .step { border-top: 1px solid var(--line); }
+  .step .n { width: 26px; height: 26px; border-radius: 50%; background: var(--raised); color: var(--muted); display: grid; place-items: center;
+             font-size: 13px; font-weight: 700; flex: none; }
+  .btn { min-height: 44px; padding: 0 20px; border-radius: 22px; background: var(--raised); font-weight: 600; font-size: 15px; margin-top: 8px; }
+
+  /* The buddy: the watch's own face. It blinks now and then, like the real one. */
+  .buddy .strap { fill: var(--watch-strap); }
+  .buddy .body { fill: var(--watch-body); }
+  .buddy .blink { transform-box: fill-box; transform-origin: center; animation: blink 6s 1.5s infinite; }
+  @keyframes blink { 0%, 95%, 100% { transform: scaleY(1); } 97.5% { transform: scaleY(0.12); } }
+
+  /* Grey shapes that stand in for the screen while the first answer is on its way. */
+  .sk { border-radius: 10px; background: var(--raised); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.45; } }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* The bar at the bottom of a phone. On a wide screen it becomes a rail on the left (see below). */
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; background: var(--bar-bg); border-top: 1px solid var(--line);
+        -webkit-backdrop-filter: saturate(1.6) blur(20px); backdrop-filter: saturate(1.6) blur(20px);
+        padding: 0 max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(8px, env(safe-area-inset-left)); }
+  nav div { max-width: 420px; margin: 0 auto; display: flex; }
+  nav button { flex: 1; min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+               color: var(--muted); font-size: 12px; font-weight: 500; border-radius: 16px; transition: color 0.15s; }
+  nav .ico { display: grid; place-items: center; width: 60px; height: 30px; border-radius: 15px; transition: background-color 0.2s; }
+  nav button[aria-current="page"] { color: var(--text); font-weight: 700; }
+  nav button[aria-current="page"] .ico { background: var(--good-bg); color: var(--good-text); }
+  nav button:focus-visible { outline-offset: -4px; }
+
+  /* Motion. Things ease in once when a screen opens: the view gets the class "enter" only then,
+     so the 4-second refresh never replays any of it. */
+  .view.enter [data-rise] { animation: rise 0.5s var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }
+  .view.enter .chip { animation: pop 0.4s var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms + var(--c, 0) * 35ms + 120ms); }
+  .view.enter .bar { animation: grow 0.6s var(--ease) both; animation-delay: calc(var(--c, 0) * 45ms + 180ms); }
+  .view.enter .val { animation: fade 0.4s ease both; animation-delay: calc(var(--c, 0) * 45ms + 480ms); }
+  .view.enter .ref { animation: sweep 0.5s var(--ease) 0.5s both; transform-origin: left; }
+  .view.enter .meter i { animation: pop 0.35s var(--ease) both; animation-delay: calc(var(--c, 0) * 50ms + 200ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  @keyframes pop { from { opacity: 0; transform: scale(0.85); } }
+  @keyframes grow { from { transform: scaleY(0); } }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes sweep { from { transform: scaleX(0); opacity: 0; } }
+  /* Some people get dizzy from movement and say so in their system settings. For them, nothing moves. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .chip:active, .rowlink:active, .back:active { transform: none; }
+  }
+
+  /* Tablet: a little more room, and the exercise cards sit two across. */
+  @media (min-width: 640px) {
+    .app { max-width: 760px; padding-left: 24px; padding-right: 24px; }
+    .list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .list > .foot { grid-column: 1 / -1; }
+  }
+  /* Laptop: the bottom bar becomes a rail on the left, holding the name, the two sections and the watch status. */
+  @media (min-width: 900px) {
+    body { padding-left: 232px; }
+    .app { max-width: 1180px; padding: 32px 40px 40px; }
+    .top { min-height: 0; height: 0; }
+    .brand { position: fixed; left: 24px; top: 28px; z-index: 3; font-size: 18px; }
+    .status { position: fixed; left: 12px; bottom: 16px; width: 208px; z-index: 3; }
+    .status .pill { width: 100%; min-height: 40px; border-radius: 12px; background: var(--raised); box-shadow: none; }
+    nav { right: auto; top: 0; width: 232px; border-top: 0; border-right: 1px solid var(--line); background: var(--card);
+          -webkit-backdrop-filter: none; backdrop-filter: none; padding: 84px 12px 72px; }
+    nav div { flex-direction: column; gap: 4px; max-width: none; }
+    nav button { flex: none; flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 48px; padding: 0 8px;
+                 font-size: 15px; border-radius: 12px; }
+    nav .ico { width: 36px; height: 32px; border-radius: 10px; }
+    nav button[aria-current="page"] { background: var(--raised); }
+    nav button[aria-current="page"] .ico { background: none; }
+    nav button:focus-visible { outline-offset: 2px; }
+    .big .num { font-size: 104px; }
+  }
+  /* Wide laptop: two columns, so the screen is used instead of one thin strip down the middle. */
+  @media (min-width: 1120px) {
+    .cols { gap: 24px; align-items: start; }
+    .cols.today { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); grid-template-rows: auto 1fr; }
+    .cols.today > .a { grid-column: 1; grid-row: 1; }
+    .cols.today > .b { grid-column: 2; grid-row: 1 / span 2; }
+    .cols.today > .c { grid-column: 1; grid-row: 2; }
+    .cols.set { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); }
+    .cols.watch { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); }
+    .cols.watch .buddy-card { flex-direction: column; align-items: flex-start; padding: 28px 24px; gap: 20px; }
+    .plot { height: 220px; }
+    .bar { max-width: 64px; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>Gym Buddy</h1>
-    <button class="status" id="status" aria-live="polite" aria-label="Watch status"></button>
+<div class="app">
+  <header class="top">
+    <h1 class="brand">
+      <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true">
+        <rect width="28" height="28" rx="8" fill="#000"/>
+        <rect x="5.5" y="8" width="7" height="9" rx="3" fill="#7CFF6B"/><rect x="15.5" y="8" width="7" height="9" rx="3" fill="#7CFF6B"/>
+        <path d="M11 20.5q3 2.2 6 0" stroke="#7CFF6B" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+      </svg>
+      Gym Buddy
+    </h1>
+    <button class="status" id="status" hidden><span class="pill" id="status-pill"></span></button>
   </header>
-  <main id="view"></main>
+  <div class="banner" id="offline" role="status" hidden>
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 100 18 9 9 0 000-18zM12 7.5v5.5M12 16.4v.2"/></svg>
+    <span>Can't reach the server. These are the last numbers it sent.</span>
+  </div>
+  <main id="view" class="view"></main>
 </div>
 <nav aria-label="Sections"><div>
-  <button id="nav-today">Today</button>
-  <button id="nav-watch">Watch</button>
+  <button id="nav-today">
+    <span class="ico"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 6.5v11M17 6.5v11M3.5 9.5v5M20.5 9.5v5M7 12h10"/></svg></span>
+    <span>Today</span>
+  </button>
+  <button id="nav-watch">
+    <span class="ico"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="7" width="11" height="10" rx="3"/><path d="M9 7l.6-3.5h4.8L15 7M9 17l.6 3.5h4.8L15 17"/></svg></span>
+    <span>Watch</span>
+  </button>
 </div></nav>
 
 <script>
@@ -102,9 +334,15 @@ let shown = 0;                // which workout is on screen: 0 = the newest
 let openSet = null;           // the set on the detail screen, as GET /sets/{id} returned it
 let lastDrawn = "";           // what was last drawn, so an unchanged refresh doesn't redraw
 let serverDown = false;
+let loaded = false;           // has the server answered at least once?
+let lastScene = "";           // which screen was last drawn, so things only ease in when the screen changes
+let heroWas = null;           // the big number last shown, so a changed count rolls from the old value
 
 const view = document.getElementById("view");
 const statusEl = document.getElementById("status");
+const statusPill = document.getElementById("status-pill");
+const offlineEl = document.getElementById("offline");
+const calm = window.matchMedia("(prefers-reduced-motion: reduce)");   // true when the person asked for no motion
 
 function el(tag, attrs, ...children) {
   // Builds elements with text, never innerHTML: nothing from the server can run as markup.
@@ -116,6 +354,29 @@ function el(tag, attrs, ...children) {
   }
   for (const child of children) node.append(child);
   return node;
+}
+
+const SVG = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs, ...children) {
+  // The same idea as el(), for drawings. SVG shapes need their own kind of element.
+  const node = document.createElementNS(SVG, tag);
+  for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, value);
+  node.append(...children);
+  return node;
+}
+
+// Each icon is one line drawing on a 24 x 24 grid. The text is fixed here, never from the server.
+const ICONS = {
+  right: "M9 6l6 6-6 6", left: "M15 6l-6 6 6 6", down: "M6 9l6 6 6-6",
+  more: "M12 19V5M6 11l6-6 6 6", less: "M12 5v14M6 13l6 6 6-6", stay: "M6 9h12M6 15h12",
+  ok: "M5 12.5l4.5 4.5L19 7.5", warn: "M12 6v7.5M12 17.4v.2", fail: "M7 7l10 10M17 7L7 17",
+  slowed: "M3 7l6 6 4-4 8 8M21 12v5h-5",
+  info: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 11v5.5M12 7.6v.2",
+};
+function icon(name, size, width) {
+  return svgEl("svg", {viewBox: "0 0 24 24", width: size || 18, height: size || 18, fill: "none", stroke: "currentColor",
+                       "stroke-width": width || 2.2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true"},
+               svgEl("path", {d: ICONS[name]}));
 }
 
 function plural(n, word) {
@@ -149,65 +410,177 @@ function route() {
 }
 
 function drawStatus() {
-  statusEl.replaceChildren();
-  if (serverDown) {
-    statusEl.append(el("span", {class: "dot fail"}), "Can't reach the server");
-  } else if (health && health.seen) {
-    statusEl.append(el("span", {class: "dot " + health.status}), "Watch seen " + ago(new Date(health.received_at)));
-  } else if (health) {
-    statusEl.append(el("span", {class: "dot warn"}), "No word from the watch yet");
+  // The pill in the corner, the "can't reach the server" strip, and which section is lit in the bar.
+  let dot = "", words = "";
+  if (serverDown) { dot = "fail"; words = "Can't reach the server"; }
+  else if (health && health.seen) { dot = health.status; words = "Watch seen " + ago(new Date(health.received_at)); }
+  else if (health) { dot = "warn"; words = "No word from the watch yet"; }
+  statusEl.hidden = !words;
+  if (words) {
+    statusPill.replaceChildren(el("span", {class: "dot " + dot}), words);
+    statusEl.setAttribute("aria-label", words + ". Open the watch checks.");
   }
+  offlineEl.hidden = !(serverDown && loaded);           // with nothing loaded yet, the screen itself says it
   const screen = route().screen;
-  document.getElementById("nav-today").toggleAttribute("aria-current", screen !== "watch");
-  document.getElementById("nav-watch").toggleAttribute("aria-current", screen === "watch");
-  for (const id of ["nav-today", "nav-watch"]) {
+  for (const [id, on] of [["nav-today", screen !== "watch"], ["nav-watch", screen === "watch"]]) {
     const button = document.getElementById(id);
-    if (button.hasAttribute("aria-current")) button.setAttribute("aria-current", "page");
+    if (on) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current");
   }
+}
+
+function buddy(status, size) {
+  // The watch with its face on it, drawn like the real one: two rounded eyes.
+  // Green and smiling when all is well, amber with one eye squinting when something needs a look,
+  // orange and worried when something failed. The screen stays black in both themes, like the real screen.
+  const color = {ok: "#7CFF6B", warn: "#FFC233", fail: "#FF8A4C"}[status];
+  const face = [];
+  if (status === "ok") {
+    face.push(svgEl("rect", {class: "blink", x: 34, y: 33, width: 19, height: 20, rx: 8, fill: color}),
+              svgEl("rect", {class: "blink", x: 67, y: 33, width: 19, height: 20, rx: 8, fill: color}),
+              svgEl("path", {d: "M51 62q9 7 18 0", stroke: color, "stroke-width": 3, fill: "none", "stroke-linecap": "round"}));
+  } else if (status === "warn") {
+    face.push(svgEl("rect", {class: "blink", x: 33, y: 36, width: 20, height: 24, rx: 8, fill: color}),
+              svgEl("rect", {x: 67, y: 46, width: 20, height: 9, rx: 4.5, fill: color}));
+  } else {
+    face.push(svgEl("rect", {x: 31, y: 36, width: 22, height: 26, rx: 7, fill: color}),
+              svgEl("rect", {x: 68, y: 44, width: 21, height: 16, rx: 6, fill: color}),
+              svgEl("path", {d: "M30 35h24v2L30 45zM67 43h23v9L67 45z", fill: "#000"}));   // the worried slant of the eyelids
+  }
+  const scale = (size || 96) / 120;
+  return svgEl("svg", {class: "buddy", viewBox: "0 0 120 108", width: Math.round(120 * scale), height: Math.round(108 * scale), "aria-hidden": "true"},
+    svgEl("rect", {class: "strap", x: 36, y: 0, width: 48, height: 22, rx: 6}),
+    svgEl("rect", {class: "strap", x: 36, y: 86, width: 48, height: 22, rx: 6}),
+    svgEl("rect", {class: "strap", x: 113, y: 40, width: 5, height: 16, rx: 2.5}),
+    svgEl("rect", {class: "body", x: 4, y: 12, width: 112, height: 84, rx: 20}),
+    svgEl("rect", {x: 12, y: 20, width: 96, height: 68, rx: 12, fill: "#000"}),
+    ...face);
+}
+
+function callout(tone, iconName, text) {
+  return el("div", {class: "callout" + (tone ? " " + tone : "")}, el("span", {class: "ci"}, icon(iconName, 16, 2.6)), el("div", {}, text));
+}
+
+function stat(value, unit, label) {
+  return el("div", {class: "stat"},
+    el("span", {class: "v num"}, String(value), ...(unit ? [el("small", {}, unit)] : [])),
+    el("span", {class: "l"}, label));
+}
+
+function bigNumber(value, unit) {
+  // The headline number. Screen readers get "92 reps" once, not every step of the count-up.
+  const number = el("span", {class: "num", "aria-hidden": "true"}, value === null ? "?" : String(value));
+  const node = el("div", {class: "big", role: "img", "aria-label": (value === null ? "Not counted" : plural(value, "rep"))},
+                  number, el("span", {class: "unit", "aria-hidden": "true"}, unit));
+  return {node, number};
+}
+
+function countUp(node, from, to) {
+  // Rolls the number up over about half a second, fast at first and slowing at the end.
+  if (from === to || calm.matches || document.hidden) return;
+  const started = performance.now(), lasts = 650;
+  node.textContent = String(from);
+  const step = now => {
+    if (!node.isConnected) return;
+    const t = Math.min(1, (now - started) / lasts);
+    node.textContent = String(Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3))));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function skeleton(screen) {
+  // Grey shapes in the layout of the real screen, shown until the first answer arrives.
+  const bone = (width, height) => el("div", {class: "sk", style: "width:" + width + ";height:" + height + "px"});
+  const card = (...bones) => el("div", {class: "card"}, ...bones);
+  const hero = el("div", {class: "card hero a"}, bone("40%", 14), bone("45%", 76), bone("100%", 40));
+  const said = el("span", {class: "sr"}, "Loading");
+  if (screen === "watch") {
+    return [said, el("div", {class: "cols watch"}, card(bone("70%", 80)), card(bone("100%", 28), bone("100%", 28), bone("100%", 28), bone("100%", 28)))];
+  }
+  if (screen === "set") {
+    return [said, bone("90px", 36), el("div", {class: "cols set"}, el("div", {class: "stack"}, hero, card(bone("30%", 18), bone("100%", 150))),
+                                       el("div", {class: "stack"}, card(bone("100%", 44))))];
+  }
+  return [said, el("div", {class: "cols today"}, hero,
+    el("div", {class: "list b"}, ...[0, 1, 2, 3].map(() => card(bone("35%", 18), bone("70%", 60), bone("100%", 44)))))];
+}
+
+function drawOffline() {
+  view.replaceChildren(el("div", {class: "empty", "data-rise": ""},
+    buddy("fail", 132),
+    el("h2", {}, "Can't reach the server"),
+    el("p", {}, "Check that it is running and that this device is on the same network. Trying again every few seconds."),
+    el("button", {class: "btn", onclick: refresh}, "Try again")));
+}
+
+function steps(...lines) {
+  return el("div", {class: "card steps"}, ...lines.map((line, i) =>
+    el("div", {class: "step"}, el("span", {class: "n", "aria-hidden": "true"}, String(i + 1)), el("span", {}, line))));
 }
 
 function drawToday() {
   if (!workouts.length) {
-    view.replaceChildren(el("div", {class: "empty"},
+    view.replaceChildren(el("div", {class: "empty", "data-rise": ""},
+      buddy("ok", 132),
       el("h2", {}, "No sets yet"),
-      el("div", {class: "muted"}, "Pick an exercise on your watch, record a set, then hold B to sync.")));
-    return;
+      el("p", {}, "Your first set will show up here a moment after the watch syncs."),
+      steps("Pick an exercise on your watch", "Record a set", "Hold B to sync")));
+    return null;
   }
   const workout = workouts[Math.min(shown, workouts.length - 1)];
-  const facts = [plural(workout.sets, "set"), plural(workout.exercises.filter(e => e.exercise).length, "exercise")];
-  if (workout.timed) facts.push(workout.minutes + " min");
-  const nodes = [
-    el("div", {},
-      el("div", {class: "muted"}, workoutTitle(workout)),
-      el("div", {class: "hero"}, String(workout.reps), el("small", {}, workout.reps === 1 ? "rep" : "reps")),
-      el("div", {class: "muted"}, facts.join(" · "))),
-  ];
-  for (const exercise of workout.exercises) {
-    const card = el("section", {class: "card"},
-      el("h2", {}, exercise.label),
+  const big = bigNumber(workout.reps, workout.reps === 1 ? "rep" : "reps");
+  const picked = workout.exercises.filter(e => e.exercise).length;
+  const hero = el("section", {class: "card hero a", "data-rise": ""},
+    el("div", {class: "eyebrow"}, workoutTitle(workout)),
+    big.node,
+    el("div", {class: "stats"},
+      stat(workout.sets, "", workout.sets === 1 ? "Set" : "Sets"),
+      stat(picked, "", picked === 1 ? "Exercise" : "Exercises"),
+      ...(workout.timed ? [stat(workout.minutes, "min", "Start to finish")] : [])));
+
+  let anySlowed = false;
+  const cards = workout.exercises.map(exercise => {
+    const reps = exercise.sets.reduce((sum, set) => sum + (set.reps || 0), 0);
+    const card = el("section", {class: "card", "data-rise": ""},
+      el("div", {class: "card-head"},
+        el("h2", {}, exercise.label),
+        el("span", {class: "muted"}, plural(exercise.sets.length, "set") + " · " + plural(reps, "rep"))),
       el("div", {class: "chips"}, ...exercise.sets.map((set, i) => {
         const slowed = set.slowdown_pct !== null && set.slowdown_pct >= SLOWED_PCT;
+        anySlowed = anySlowed || slowed;
         const spoken = "Set " + (i + 1) + ", " + (set.reps === null ? "not counted" : plural(set.reps, "rep"))
                      + (slowed ? ", slowed at the end" : "");
         return el("button", {class: "chip" + (set.reps === null ? " unknown" : "") + (slowed ? " slowed" : ""),
-                             "aria-label": spoken, onclick: () => { location.hash = "set=" + set.set_id; }},
-                  set.reps === null ? "?" : String(set.reps));
+                             style: "--c:" + i, "aria-label": spoken, onclick: () => { location.hash = "set=" + set.set_id; }},
+                  ...(slowed ? [el("span", {class: "flag"}, icon("slowed", 12, 2.8))] : []),
+                  el("span", {class: "n num"}, set.reps === null ? "?" : String(set.reps)),
+                  el("span", {class: "k"}, "Set " + (i + 1)));
       })));
     if (exercise.suggestion) {
-      const tone = {more: " good", less: " effort"}[exercise.suggestion.kind] || "";
-      card.append(el("div", {class: "note" + tone}, exercise.suggestion.text));
+      const tone = {more: "good", less: "effort"}[exercise.suggestion.kind] || "";
+      const sign = {more: "more", less: "less"}[exercise.suggestion.kind] || "stay";
+      card.append(callout(tone, sign, exercise.suggestion.text));
+    } else if (!exercise.exercise) {
+      card.append(callout("", "info", "Tap a set to pick its exercise."));
     }
-    nodes.push(card);
+    return card;
+  });
+  if (anySlowed) {
+    cards.push(el("div", {class: "foot", "data-rise": ""}, icon("slowed", 16),
+      el("span", {}, "Marked sets slowed a lot on the last rep. Tap any set to see its pace.")));
   }
+  const parts = [hero, el("div", {class: "list b"}, ...cards)];
   if (workouts.length > 1) {
-    nodes.push(el("div", {},
-      el("div", {class: "muted", style: "margin: 8px 0 4px"}, "Other workouts"),
-      ...workouts.map((other, index) => index === shown ? "" :
-        el("button", {class: "day", onclick: () => { shown = index; draw(true); window.scrollTo(0, 0); }},
-           el("span", {}, workoutTitle(other)),
-           el("span", {}, plural(other.reps, "rep") + " · " + plural(other.sets, "set"))))));
+    parts.push(el("section", {class: "stack c", "data-rise": "", style: "gap:8px"},
+      el("h2", {class: "eyebrow", style: "padding:8px 4px 0"}, "Other workouts"),
+      el("div", {class: "card rows"}, ...workouts.map((other, index) => index === shown ? "" :
+        el("button", {class: "rowlink", onclick: () => { shown = index; draw(true); window.scrollTo(0, 0); }},
+           el("span", {}, workoutTitle(other),
+              el("span", {class: "sub"}, plural(other.reps, "rep") + " · " + plural(other.sets, "set"))),
+           icon("right", 18))))));
   }
-  view.replaceChildren(...nodes);
+  view.replaceChildren(el("div", {class: "cols today"}, ...parts));
+  return {node: big.number, value: workout.reps};
 }
 
 function paceCard(set) {
@@ -215,21 +588,39 @@ function paceCard(set) {
   const gaps = set.gaps || [];
   if (gaps.length < 2 || set.slowdown_pct === null) return null;
   const fastest = Math.min(...gaps), slowest = Math.max(...gaps);
-  const bars = gaps.map(gap => {
-    const ratio = gap / set.usual_s;                    // against the set's usual pace, as the server judges it
-    const color = ratio >= 1.25 ? "var(--effort)" : ratio >= 1.1 ? "var(--wait)" : "var(--good)";
-    return el("div", {class: "bar", style: "height:" + Math.round(100 * gap / slowest) + "%;background:" + color});
+  const top = Math.max(slowest, set.usual_s);            // the tallest thing in the chart: 100% of its height
+  const crowded = gaps.length > 10;                      // many reps: label only what matters so numbers don't collide
+  const tones = new Set();
+  const cols = gaps.map((gap, i) => {
+    const ratio = gap / set.usual_s;                     // against the set's usual pace, as the server judges it
+    const tone = ratio >= 1.25 ? "slower" : ratio >= 1.1 ? "slow" : "";
+    tones.add(tone);
+    const last = i === gaps.length - 1;
+    const height = Math.max(3, Math.round(1000 * gap / top) / 10);
+    return el("div", {class: "col" + (last ? " last" : ""), style: "--c:" + Math.min(i, 12)},
+      ...(crowded && !last ? [] : [el("span", {class: "val", style: "bottom:" + height + "%"}, el("span", {}, gap.toFixed(1)))]),
+      el("div", {class: "bar" + (tone ? " " + tone : ""), style: "height:" + height + "%"}));
+  });
+  const names = gaps.map((gap, i) => {
+    const last = i === gaps.length - 1;
+    const text = gaps.length <= 8 ? (i + 1) + "–" + (i + 2) : (crowded && i % 2 && !last ? "" : String(i + 2));
+    return el("span", last ? {class: "last"} : {}, text);
   });
   const sentence = set.slowdown_pct >= 10
-    ? el("div", {class: "note effort"}, "The last rep took " + set.slowdown_pct + "% longer than your usual pace.")
-    : el("div", {class: "note good"}, "Steady pace all the way through.");
-  return el("section", {class: "card"},
-    el("div", {class: "muted"}, "Seconds from one rep to the next"),
-    el("div", {class: "bars", role: "img",
-               "aria-label": "Rep pace: fastest " + fastest.toFixed(1) + " seconds, slowest " + slowest.toFixed(1) + " seconds"},
-       ...bars),
-    el("div", {class: "scale"}, el("span", {}, "fastest " + fastest.toFixed(1) + " s"),
-                                el("span", {}, "slowest " + slowest.toFixed(1) + " s")),
+    ? callout("effort", "slowed", "The last rep took " + set.slowdown_pct + "% longer than your usual pace.")
+    : callout("good", "ok", "Steady pace all the way through.");
+  return el("section", {class: "card", "data-rise": ""},
+    el("div", {class: "card-head"}, el("h2", {}, "Pace"), el("span", {class: "muted"}, "Seconds from one rep to the next")),
+    el("div", {class: "chart", role: "img",
+               "aria-label": "Rep pace: fastest " + fastest.toFixed(1) + " seconds, slowest " + slowest.toFixed(1)
+                           + " seconds, usual " + set.usual_s.toFixed(1) + " seconds, last " + gaps[gaps.length - 1].toFixed(1) + " seconds"},
+      el("div", {class: "plot"}, ...cols,
+         el("div", {class: "ref", style: "bottom:" + Math.round(1000 * set.usual_s / top) / 10 + "%"})),
+      el("div", {class: "axis"}, ...names),
+      el("div", {class: "legend"},
+        el("span", {}, el("i", {class: "dash"}), "Usual pace " + set.usual_s.toFixed(1) + " s"),
+        ...(tones.has("slow") ? [el("span", {}, el("i", {class: "slow"}), "10% or more slower")] : []),
+        ...(tones.has("slower") ? [el("span", {}, el("i", {class: "slower"}), "25% or more slower")] : []))),
     sentence);
 }
 
@@ -240,7 +631,6 @@ function labelOf(name) {
 
 function drawSet() {
   const set = openSet;
-  if (!set) { view.replaceChildren(el("div", {class: "muted"}, "Loading…")); return; }
   const note = el("div", {class: "note", "aria-live": "polite"}, "Wrong exercise? Change it and the reps are counted again.");
   const select = el("select", {id: "exercise", onchange: async () => {
     note.className = "note"; note.textContent = "Counting again…";
@@ -262,74 +652,92 @@ function drawSet() {
   select.value = set.exercise || "";
 
   const pace = paceCard(set);
-  const when = set.started_at ? "started " + ago(new Date(set.started_at * 1000))
-                              : "synced " + ago(new Date(set.received_at.replace(" ", "T") + "Z"));
+  const gaps = set.gaps || [];
+  const big = bigNumber(set.reps, set.reps === 1 ? "rep" : "reps");
+  const hero = el("section", {class: "card hero", "data-rise": ""},
+    el("div", {class: "eyebrow"}, labelOf(set.exercise)),
+    big.node,
+    el("div", {class: "stats"},
+      stat((set.duration_ms / 1000).toFixed(1), "s", "Length"),
+      ...(pace ? [stat(set.usual_s.toFixed(1), "s", "Usual pace"), stat(gaps[gaps.length - 1].toFixed(1), "s", "Last rep")] : [])));
   view.replaceChildren(
-    el("button", {class: "link", onclick: () => { location.hash = ""; }}, "‹ Back"),
-    el("div", {},
-      el("div", {class: "muted"}, labelOf(set.exercise)),
-      el("div", {class: "hero"}, set.reps === null ? "?" : String(set.reps), el("small", {}, set.reps === 1 ? "rep" : "reps"))),
-    ...(set.reps === null ? [el("div", {class: "note effort"}, "This set couldn't be counted. Its recording is saved.")] : []),
-    ...(pace ? [pace] : []),
-    el("section", {class: "card"},
-      el("div", {class: "row"}, el("label", {for: "exercise"}, "Exercise"), select),
-      note),
-    el("div", {class: "note"}, (set.duration_ms / 1000).toFixed(1) + " s long · " + when + " · set " + set.set_id.slice(0, 5)));
-}
-
-function buddy(status) {
-  // The same face as on the watch: calm when all is well, one eye squinting when something needs a look.
-  const color = {ok: "var(--good)", warn: "var(--wait)", fail: "var(--effort)"}[status];
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 64 44"); svg.setAttribute("width", "64"); svg.setAttribute("height", "44");
-  svg.setAttribute("aria-hidden", "true");
-  const shape = (tag, attrs) => {
-    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-    svg.append(node);
-  };
-  shape("rect", {x: 6, y: 4, width: 20, height: status === "ok" ? 22 : 26, rx: 8, fill: color});
-  shape("rect", {x: 38, y: status === "ok" ? 4 : 10, width: 20, height: status === "ok" ? 22 : 14, rx: 7, fill: color});
-  if (status === "ok") shape("path", {d: "M22 33 Q32 41 42 33", stroke: color, "stroke-width": 3, fill: "none", "stroke-linecap": "round"});
-  return svg;
+    el("button", {class: "back", "aria-label": "Back to the workout", onclick: () => { location.hash = ""; }}, icon("left", 22), "Back"),
+    el("div", {class: "cols set"},
+      el("div", {class: "stack"},
+        hero,
+        ...(set.reps === null ? [el("div", {"data-rise": ""}, callout("effort", "warn", "This set couldn't be counted. Its recording is saved."))] : []),
+        ...(pace ? [pace] : [])),
+      el("div", {class: "stack"},
+        el("section", {class: "card", "data-rise": ""},
+          el("div", {class: "field"}, el("label", {for: "exercise"}, "Exercise"), el("div", {class: "pick"}, select, icon("down", 18))),
+          note),
+        el("section", {class: "card rows", "data-rise": "", "aria-label": "About this set"},
+          el("div", {class: "kv"}, el("span", {}, set.started_at ? "Started" : "Synced"),
+            el("span", {}, set.started_at ? ago(new Date(set.started_at * 1000)) : ago(new Date(set.received_at.replace(" ", "T") + "Z")))),
+          el("div", {class: "kv"}, el("span", {}, "Set number"), el("span", {class: "num"}, set.set_id.slice(0, 5)))))));
+  return {node: big.number, value: set.reps};
 }
 
 function drawWatch() {
-  if (!health) { view.replaceChildren(el("div", {class: "muted"}, "Loading…")); return; }
   if (!health.seen) {
-    view.replaceChildren(el("div", {class: "empty"},
-      buddy("warn"),
+    view.replaceChildren(el("div", {class: "empty", "data-rise": ""},
+      buddy("warn", 132),
       el("h2", {}, "No word from the watch yet"),
-      el("div", {class: "muted"}, "Hold B on the watch near your Wi-Fi. It reports how it is doing after every sync.")));
+      el("p", {}, "It reports how it is doing after every sync."),
+      steps("Bring the watch near your Wi-Fi", "Hold B to sync", "Seven checks show up here")));
     return;
   }
-  const marks = {ok: "✓", warn: "!", fail: "×"};
   const words = {ok: "Passed", warn: "Check", fail: "Failed"};
-  view.replaceChildren(
-    el("section", {class: "card", style: "flex-direction:row;align-items:center;gap:14px"},
-      buddy(health.status),
-      el("div", {},
-        el("div", {style: "font-weight:600;font-size:17px"}, health.summary),
-        el("div", {class: "muted"}, health.checks.filter(c => c.status === "ok").length + " of " + health.checks.length + " checks passed"))),
-    el("section", {class: "card"}, ...health.checks.map(check =>
-      el("div", {class: "check"},
-        el("span", {class: "mark " + check.status, role: "img", "aria-label": words[check.status]}, marks[check.status]),
-        el("div", {class: "body"},
-          el("div", {}, check.label),
-          ...(check.help ? [el("div", {class: "note" + (check.status === "ok" ? "" : " effort")}, check.help)] : [])),
-        el("div", {class: "value"}, check.value)))),
-    el("div", {class: "note"}, "The watch sends these numbers after every sync. The limits are set on the server."));
+  const passed = health.checks.filter(c => c.status === "ok").length;
+  view.replaceChildren(el("div", {class: "cols watch"},
+    el("section", {class: "card buddy-card", "data-rise": ""},
+      buddy(health.status, 112),
+      el("div", {class: "words"},
+        el("h2", {class: "title"}, health.summary),
+        el("div", {class: "muted"}, passed + " of " + health.checks.length + " checks passed"),
+        el("div", {class: "meter", "aria-hidden": "true"}, ...health.checks.map((check, i) =>
+          el("i", {class: check.status, style: "--c:" + i}))))),
+    el("div", {class: "stack"},
+      el("section", {class: "card rows", "data-rise": "", "aria-label": "Checks"}, ...health.checks.map(check =>
+        el("div", {class: "check"},
+          el("span", {class: "mark " + check.status, role: "img", "aria-label": words[check.status]}, icon(check.status, 15, 3)),
+          el("div", {class: "body"},
+            el("div", {}, check.label),
+            ...(check.help ? [el("div", {class: "help " + check.status}, check.help)] : [])),
+          el("div", {class: "value"}, check.value)))),
+      el("div", {class: "foot", "data-rise": ""}, icon("info", 16),
+        el("span", {}, "The watch sends these numbers after every sync. The limits are set on the server.")))));
 }
 
 function draw(force) {
   drawStatus();
   const where = route();
-  const fingerprint = JSON.stringify([workouts, health, openSet, where, shown, serverDown]);
+  const fingerprint = JSON.stringify([workouts, health, openSet, where, shown, serverDown, loaded]);
   if (!force && fingerprint === lastDrawn) return;      // nothing new: leave the screen alone
   lastDrawn = fingerprint;
-  if (where.screen === "watch") drawWatch();
-  else if (where.screen === "set") drawSet();
-  else drawToday();
+
+  // "ready" means the server has sent what this screen needs. Until then: grey shapes, or the offline screen.
+  const ready = where.screen === "set" ? Boolean(openSet) : where.screen === "watch" ? Boolean(health) : loaded;
+  const scene = [where.screen, where.id || "", shown, ready, serverDown && !ready].join("|");
+  const entering = scene !== lastScene;                 // a different screen than last time: let it ease in
+  lastScene = scene;
+  view.classList.toggle("enter", entering);
+  view.setAttribute("aria-busy", String(!ready && !serverDown));
+
+  let hero = null;
+  if (!ready && serverDown) drawOffline();
+  else if (!ready) view.replaceChildren(...skeleton(where.screen));
+  else if (where.screen === "watch") drawWatch();
+  else if (where.screen === "set") hero = drawSet();
+  else hero = drawToday();
+
+  // Hand out the order in which the pieces ease in: 0, 1, 2 ... Each one starts a moment after the one before.
+  if (entering) view.querySelectorAll("[data-rise]").forEach((node, i) => node.style.setProperty("--i", Math.min(i, 8)));
+  if (hero && hero.value !== null) {
+    if (entering) countUp(hero.node, 0, hero.value);
+    else if (heroWas !== null && heroWas !== hero.value) countUp(hero.node, heroWas, hero.value);
+  }
+  heroWas = hero ? hero.value : null;
 }
 
 async function getJson(path) {
@@ -346,6 +754,7 @@ async function refresh() {
       where.screen === "set" ? getJson("/sets/" + encodeURIComponent(where.id)).catch(() => null) : null,
       exercises.length ? exercises : getJson("/exercises")]);
     workouts = newWorkouts; health = newHealth; exercises = newExercises;
+    loaded = true;
     if (where.screen === "set") {
       if (newSet === null) { location.hash = ""; return; }      // a set that doesn't exist: back to Today
       openSet = newSet;
@@ -357,12 +766,16 @@ async function refresh() {
   draw(false);
 }
 
-document.getElementById("nav-today").addEventListener("click", () => { shown = 0; location.hash = ""; });
+document.getElementById("nav-today").addEventListener("click", () => {
+  shown = 0;
+  if (location.hash) location.hash = ""; else { draw(true); window.scrollTo(0, 0); }   // already on Today: just show the newest workout
+});
 document.getElementById("nav-watch").addEventListener("click", () => { location.hash = "watch"; });
 statusEl.addEventListener("click", () => { location.hash = "watch"; });
 window.addEventListener("hashchange", () => { openSet = null; draw(true); refresh(); window.scrollTo(0, 0); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 setInterval(() => { if (!document.hidden && document.activeElement.tagName !== "SELECT") refresh(); }, REFRESH_MS);
+draw(true);                                             // grey shapes straight away, then the real thing
 refresh();
 </script>
 </body>
