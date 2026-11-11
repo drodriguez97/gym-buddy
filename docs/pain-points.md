@@ -6,6 +6,15 @@ decisions.md; the evidence is in presentation/README.md.
 
 ## Open
 
+- **Not yet confirmed on the real watch (2026-11-10).** The clock sync, set
+  start times, the health report, light and deep sleep and the fonts are
+  tested against the fake watch only. The Docker image has never been built.
+  Each is a line in demo.md's checklist.
+- **The battery may not be charging fully.** Plugged in, it read 3.86 V (70%)
+  with `isCharging()` false. To do: read it again after 30 minutes and try a
+  wall charger.
+- **Sets 30 and 44 have no known rep count.** 44 is a curl counted as 3 with
+  an irregular recording; 30 has no exercise.
 - **Presses on the forearm.** On RecoFit's forearm data, shoulder press (53%),
   chest press on the rack (39%) and dips (35%) are still far below the 93%
   benchmark even when told the exercise. The forearm travels less than the wrist,
@@ -89,3 +98,20 @@ decisions.md; the evidence is in presentation/README.md.
   13 for 6) until the tilt-vs-line check was added (2026-10-30). Lesson that has
   held all weekend: every new exercise and every new non-exercise needs labeled
   sets before the counter is trusted on it.
+- **Stopping a set felt laggy (2026-11-09).** The stop press took half a
+  second to register. Timing each line on the watch found two causes: asking
+  the flash how full it is (483 ms) and flash writes that stall (up to 491 ms).
+  Both moved out of the recording loop; a pass of the loop is now 1.1 ms.
+  Lesson: measure on the device before guessing.
+- **A steady set was told to drop weight (2026-11-10).** Fatigue compared the
+  last rep with the fastest, and one quick first rep made steady shoulder
+  presses read 38% slower. Found by looking at the page with real data, not
+  by a test: every test passed. Now compared with the usual rep.
+- **Tests that passed for the wrong reason.** Several rejection tests only
+  checked for "422" and kept passing when the wrong check rejected the
+  upload. They now check the message too, and new tests are tried against
+  deliberately broken code.
+- **A pile of test uploads in the real data (2026-11-10).** 23 practice sets
+  sat next to the real ones. Moved to an archive folder, not deleted, because
+  sets 28 and up exist nowhere else.
+

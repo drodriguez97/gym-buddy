@@ -174,7 +174,7 @@ function drawToday() {
     return;
   }
   const workout = workouts[Math.min(shown, workouts.length - 1)];
-  const facts = [plural(workout.sets, "set"), plural(workout.exercises.length, "exercise")];
+  const facts = [plural(workout.sets, "set"), plural(workout.exercises.filter(e => e.exercise).length, "exercise")];
   if (workout.timed) facts.push(workout.minutes + " min");
   const nodes = [
     el("div", {},

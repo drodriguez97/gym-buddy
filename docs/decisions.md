@@ -130,3 +130,56 @@ exercise in the dashboard) predate this log and are summarised first.
   dashboard will call it. The blind guess is still reported by the scorecard
   as its own column, so the two numbers stay visible side by side (RecoFit:
   64% blind, 79% told).
+
+## 2026-11-09 and 11-10: the watch, the server, the dashboard
+
+- **The exercise is picked on the watch.** Replaces "picked in the dashboard".
+  Counting blind got real sets wrong (6 curls counted 0, 7 push-ups counted 0),
+  and labeling afterwards from memory defeats a counter. B cycles six
+  exercises and the choice sticks for the next set. Cost: sync moved to a long
+  hold of B, and the watch and server each hold a copy of the list.
+- **Record to memory, write once at the end.** Writing to flash during a set
+  stalled the loop for up to 491 ms, and asking the flash how full it is took
+  483 ms. A set now goes into a 145 KB buffer set aside at boot and is written
+  when it stops. Cost: sets are capped at two minutes, and a set is lost if
+  the watch dies mid-set (not after: the save is finished or redone at boot).
+- **Count on upload, store the count.** Counting takes milliseconds, so the
+  receipt can carry the reps back to the watch and the dashboard reads a ready
+  number. `analysis_version` marks which counter produced each row.
+- **SQLite, one file, next to the raw files.** One watch means one writer. No
+  database server to run, and a backup is a file copy. The raw files stay the
+  truth: `backfill.py` rebuilds every row from them. Move to Postgres when
+  there is more than one writer.
+- **Pace, workouts and suggestions are worked out on every request, never
+  stored.** They are cheap, and the rules will change. Storing them would mean
+  migrating data every time a threshold moves.
+- **Fatigue is the last gap against the usual gap, not the fastest.** The
+  first version compared with the fastest gap. On the real shoulder-press sets
+  the first gap was short (1.25 s, then a steady 1.7 to 1.8 s), so a perfectly
+  steady set read "38% slower" and the suggestion said to drop the weight.
+  The middle gap ignores one odd rep. Set 9 went from 38% to 0%.
+- **The watch measures, the server judges.** The health report is raw numbers
+  (g at rest, signal strength, battery). Limits live in `health.py`, so
+  changing "what counts as weak Wi-Fi" never needs a reflash.
+- **Start time from the watch, with an honest fallback.** The watch sets its
+  clock from the internet at each sync and stamps each set. A set recorded
+  before the first sync has no time; the server then uses the upload time and
+  the page says "synced" instead of pretending.
+- **Two secrets, two callers.** The watch has a token that only uploads; the
+  dashboard has a password that only reads and relabels. Leaking one does not
+  give the other. Both are environment variables, compared in constant time.
+  HTTP Basic was chosen for the password because the browser provides the
+  sign-in box: no login page, no sessions to get wrong. It is only safe over
+  HTTPS, which is why Caddy sits in front.
+- **The app in a container, the data on a volume, no database container.**
+  SQLite is a file, so the volume holds everything worth keeping and the
+  container can be thrown away and rebuilt.
+- **The watch uploads over HTTP for the demo.** HTTPS from MicroPython on this
+  firmware is untested and the demo cannot fail. The risk is a readable upload
+  token on the hotspot, which allows fake uploads and nothing else.
+- **Tests run the real code against stand-ins.** The watch code runs against
+  a fake screen, buttons, sensor and clock; the sync tests upload to the real
+  server app; the deploy test starts the server as a real process, fills it,
+  restarts it and checks the data. Each important test was checked by breaking
+  the code on purpose and seeing the test fail.
+
