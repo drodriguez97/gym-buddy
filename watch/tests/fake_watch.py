@@ -7,7 +7,8 @@ the file, and returns what happened as a list of (seconds, event) pairs.
 Events: "backlight on", "backlight off", "screen: <text>", "paint" (shapes),
 "recording start", "recording stop", "light sleep", "woke by button",
 "deep sleep", "pin saved <n>", "sync", "radios off", "flash measured",
-"exercise saved <n>", "set exercise <name>", "reset", "backlight dim", "beep".
+"exercise saved <n>", "set exercise <name>", "reset", "backlight dim", "beep",
+"health <accel> <gyro>" (the snapshot handed to a sync).
 """
 import importlib.util
 import sys
@@ -46,6 +47,8 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     already saved on the watch at boot. has_vbus: the firmware can read the USB
     line's voltage (as the real watch can); if not, only its charging flag is left."""
     clock = [0]                             # virtual milliseconds
+    result = Result([], [])
+    result.health = None                    # the snapshot main.py handed to the last sync
     events = []
     armed = []
 
@@ -144,6 +147,8 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     if has_vbus:
         M5.Power.getVBUSVoltage = lambda: 4938 if charging else 0
     M5.Speaker = types.SimpleNamespace(tone=lambda hz, ms: say("beep"), setVolume=lambda v: None)
+    M5.Power.getBatteryVoltage = lambda: 3860
+    M5.Imu = types.SimpleNamespace(getAccel=lambda: (0.0, 0.6, 0.8), getGyro=lambda: (3.0, 0.0, 4.0))
     M5.begin = lambda: None
 
     def update():
@@ -262,8 +267,11 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     # ---- sync, network
     fake_sync = types.ModuleType("sync")
 
-    def sync(report=None):
+    def sync(report=None, health=None):
         say("sync")
+        if health is not None:
+            say("health %s %s" % (health.get("accel_g"), health.get("gyro_dps")))
+            result.health = health
         if isinstance(sync_result, Exception):
             raise sync_result
         if report:
@@ -309,4 +317,5 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
                 del sys.modules[name]
             else:
                 sys.modules[name] = module
-    return Result(events, armed)
+    result.events, result.armed = events, armed
+    return result

@@ -239,6 +239,28 @@ def count_waiting():
         return 0
 
 
+def health_snapshot():
+    # What the watch can measure about itself, for the server to judge: the
+    # sensor at rest (0.3 s of readings), battery and storage. Never during a set.
+    try:
+        accel = gyro = 0
+        for _ in range(30):
+            ax, ay, az = M5.Imu.getAccel()
+            gx, gy, gz = M5.Imu.getGyro()
+            accel += (ax * ax + ay * ay + az * az) ** 0.5
+            gyro += (gx * gx + gy * gy + gz * gz) ** 0.5
+            time.sleep_ms(10)
+        snapshot = {"accel_g": round(accel / 30, 3), "gyro_dps": round(gyro / 30, 1),
+                    "battery_pct": battery_percent(), "free_pct": percent_free()}
+    except Exception:
+        return {}
+    try:
+        snapshot["battery_mv"] = M5.Power.getBatteryVoltage()
+    except Exception:
+        pass
+    return snapshot
+
+
 def reps_hint(reps, sent):
     # "REPS 8 8 6" for the sets just synced (the last six fit), or how many were sent.
     if not reps:
@@ -371,7 +393,7 @@ def run_sync():
     reps = []
     try:
         import sync             # here, not at the top: recording must work without config.py
-        sent, left, problem = sync.sync(lambda text: face("sync", "SYNC", text.upper()))
+        sent, left, problem = sync.sync(lambda text: face("sync", "SYNC", text.upper()), health_snapshot())
         reps = getattr(sync, "last_reps", [])
     except Exception as e:
         radios_off()

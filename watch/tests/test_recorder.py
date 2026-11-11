@@ -24,6 +24,7 @@ class Bench:
         self.reading = ((0.012, -0.985, 0.068), (0.3, -0.1, 12.5))     # accel g, gyro deg/s
         self.sensor_reads = 0
         self.seq = {}
+        self.now = None                 # what the watch's clock says, in unix seconds; None = never set
         bench = self
 
         def get_accel():
@@ -50,6 +51,7 @@ class Bench:
                 getAccel=get_accel, getGyro=lambda: bench.reading[1])),
             "esp32": types.SimpleNamespace(NVS=NVS),
             "ubinascii": types.SimpleNamespace(hexlify=lambda b: b.hex().encode()),
+            "clock": types.SimpleNamespace(unix_now=lambda: bench.now),
             "time": types.SimpleNamespace(ticks_ms=lambda: bench.clock, ticks_diff=lambda a, b: a - b,
                                           ticks_add=lambda a, b: a + b),
         }
@@ -120,7 +122,7 @@ def test_the_json_has_the_fields_the_server_and_analyzer_read(bench):
     bench.run(2000)
     info = bench.rec.stop()
     assert set(info) == {"set_id", "count", "duration_ms", "rate_hz", "late", "format", "accel_unit",
-                         "gyro_unit", "exercise"}
+                         "gyro_unit", "exercise", "started_at"}
     assert info["format"] == "<6h" and info["accel_unit"] == "mg" and info["gyro_unit"] == "0.1 dps"
 
 
@@ -264,3 +266,21 @@ def test_recovery_leaves_finished_sets_alone(bench):
     before = (bench.flash / (info["set_id"] + ".bin")).read_bytes()
     bench.module.Recorder()
     assert (bench.flash / (info["set_id"] + ".bin")).read_bytes() == before
+
+
+# ---- when the set happened
+
+def test_a_set_records_when_it_started_once_the_clock_is_set(bench):
+    bench.now = 1794300000
+    bench.rec.start("curl")
+    bench.now += 12                     # the clock moves on during the set; the start must not
+    bench.run(1000)
+    assert bench.rec.stop()["started_at"] == 1794300000
+
+
+def test_a_set_recorded_before_the_clock_was_ever_set_has_no_start_time(bench):
+    bench.rec.start("curl")
+    bench.run(1000)
+    info = bench.rec.stop()
+    assert info["started_at"] is None
+    assert json.loads((bench.flash / (info["set_id"] + ".json")).read_text())["started_at"] is None

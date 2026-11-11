@@ -18,6 +18,7 @@ import time
 import ubinascii
 import esp32
 import M5
+import clock
 
 RATE_HZ = 100
 PERIOD_MS = 1000 // RATE_HZ
@@ -67,6 +68,7 @@ class Recorder:
         # exercise: the name picked on the watch; the server counts with it.
         gc.collect()                    # tidy memory now, so a clean-up is less likely mid-set
         self.exercise = exercise
+        self.started_at = clock.unix_now()      # None until a sync has set the clock
         self.set_id = _next_set_id()
         self.count = 0
         self.late = 0
@@ -121,6 +123,7 @@ class Recorder:
             "accel_unit": "mg",
             "gyro_unit": "0.1 dps",
             "exercise": self.exercise,
+            "started_at": self.started_at,
         }
         try:
             with open(base + ".tmp", "wb") as f:

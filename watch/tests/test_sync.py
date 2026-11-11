@@ -39,6 +39,8 @@ class Watch:
         self.posts = []                         # set_id of every POST attempted
         self.waited_ms = 0
         self.timeouts = []                      # the timeout passed with each POST
+        self.now = None                         # the watch's clock: None until a sync sets it
+        self.internet_time = 1794300000         # what the internet says; None = no answer
         self.token = "dev-token"
         self.post = self.post_to_server         # tests swap this to break the network
         self.sync = self._load()
@@ -61,13 +63,22 @@ class Watch:
             def connect(self, ssid, password):
                 pass
 
+            def status(self, what):
+                return -48
+
         clock = [0]
 
         def sleep_ms(ms):
             clock[0] += ms
             watch.waited_ms += ms
 
+        def set_from_internet():
+            if watch.internet_time is not None:
+                watch.now = watch.internet_time
+            return watch.now is not None
+
         fakes = {
+            "clock": types.SimpleNamespace(unix_now=lambda: watch.now, set_from_internet=set_from_internet),
             "network": types.SimpleNamespace(WLAN=WLAN, STA_IF=0),
             "config": types.SimpleNamespace(WIFI_SSID="home", WIFI_PASSWORD="pw",
                                             SERVER="http://server", TOKEN="dev-token"),
@@ -94,9 +105,13 @@ class Watch:
         return self.post(url, data, headers)
 
     def post_to_server(self, url, data, headers):
-        self.posts.append(json.loads(headers["X-Set-Meta"])["set_id"])
-        assert url == "http://server/sets"
-        return self.client.post("/sets", content=data, headers={**headers, "X-Token": self.token})
+        assert url.startswith("http://server/")
+        if "X-Set-Meta" in headers:
+            self.posts.append(json.loads(headers["X-Set-Meta"])["set_id"])
+        return self.client.post(url[len("http://server"):], content=data, headers={**headers, "X-Token": self.token})
+
+    def health_on_server(self):
+        return self.client.get("/watch/health").json()
 
     def record(self, set_id):
         # Put a real recorded set on the watch.
@@ -325,3 +340,78 @@ def test_counts_from_an_earlier_sync_are_forgotten(watch):
     watch.sync.last_reps.append(99)
     watch.sync.sync()
     assert 99 not in watch.sync.last_reps and len(watch.sync.last_reps) == 2
+
+
+# ---- the clock and the health report
+
+HEALTH = {"accel_g": 1.0, "gyro_dps": 2.0, "battery_pct": 70, "battery_mv": 3860, "free_pct": 88}
+
+
+def test_a_sync_sets_the_clock_from_the_internet(watch):
+    assert watch.now is None
+    watch.sync.sync()
+    assert watch.now == 1794300000
+
+
+def test_a_sync_still_works_when_the_time_server_does_not_answer(watch):
+    watch.internet_time = None
+    assert watch.sync.sync() == (2, 0, None)
+    assert watch.now is None
+
+
+def test_a_sync_ends_with_a_health_report_the_server_can_judge(watch):
+    import time
+    watch.internet_time = int(time.time())
+    assert watch.sync.sync(health=HEALTH) == (2, 0, None)
+    body = watch.health_on_server()
+    assert body["seen"] is True and body["status"] == "ok", body
+    values = {c["key"]: c["value"] for c in body["checks"]}
+    assert values["wifi"] == "Strong (-48 dBm)" and values["waiting"] == "0" and values["battery"] == "70% (3.86 V)"
+
+
+def test_the_report_counts_the_sets_left_after_the_uploads(watch):
+    import time
+    watch.internet_time = int(time.time())
+    damaged = watch.flash / (SETS[0] + ".bin")
+    damaged.write_bytes(damaged.read_bytes()[:-12])
+    watch.sync.sync(health=HEALTH)
+    waiting = [c for c in watch.health_on_server()["checks"] if c["key"] == "waiting"][0]
+    assert waiting["value"] == "1" and waiting["status"] == "warn"
+
+
+def test_with_a_health_report_a_sync_happens_even_with_no_sets_waiting(watch):
+    for p in watch.flash.iterdir():
+        p.unlink()
+    assert watch.sync.sync(health=HEALTH) == (0, 0, None)
+    assert watch.radio_was_on and not watch.radio_on
+    assert watch.health_on_server()["seen"] is True
+
+
+def test_a_failed_health_report_does_not_spoil_the_sync(watch):
+    def health_down(url, data, headers):
+        if url.endswith("/watch/health"):
+            raise OSError("dropped")
+        return watch.post_to_server(url, data, headers)
+    watch.post = health_down
+    assert watch.sync.sync(health=HEALTH) == (2, 0, None)
+    assert watch.on_watch() == []
+
+
+def test_no_health_report_is_attempted_when_the_server_is_unreachable(watch):
+    urls = []
+
+    def down(url, data, headers):
+        urls.append(url)
+        raise OSError("unreachable")
+    watch.post = down
+    assert watch.sync.sync(health=HEALTH) == (0, 2, "no server")
+    assert all(url.endswith("/sets") for url in urls)
+
+
+def test_the_start_time_reaches_the_server(watch):
+    for set_id in SETS:
+        path = watch.flash / (set_id + ".json")
+        path.write_text(json.dumps({**json.loads(path.read_text()), "started_at": 1794300000, "exercise": "curl"}))
+    watch.sync.sync()
+    rows = watch.client.get("/sets").json()
+    assert [row["started_at"] for row in rows] == [1794300000, 1794300000]

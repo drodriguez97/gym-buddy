@@ -120,7 +120,7 @@ def test_the_exercise_stays_picked_for_the_next_set():
 
 def test_holding_b_syncs_and_shows_the_result():
     r = run(b_presses=[press(5, hold=HOLD)], run_for_s=15, saved_pin=11)
-    assert len(r.times("sync")) == 1 and 5.8 <= r.times("sync")[0] < 6.0
+    assert len(r.times("sync")) == 1 and 5.8 <= r.times("sync")[0] < 6.3     # the hold, then 0.3 s reading the sensor
     assert screens(r, 5.8, 6.5) == ["SYNC", "SYNC", "SET 1 OF 2"]
     assert screens(r, 9.5, 11)[:2] == ["SYNCED", "2 SENT"]
 
@@ -163,7 +163,7 @@ def test_button_b_does_nothing_while_the_screen_is_off():
 def test_sync_keeps_the_screen_on_for_another_20_s():
     r = run(b_presses=[press(15, hold=HOLD)], run_for_s=60, saved_pin=11)
     off = r.times("backlight off")
-    assert len(off) == 1 and 39.5 <= off[0] < 40.5     # 15 s + hold + 4 s sync + 20 s
+    assert len(off) == 1 and 39.5 <= off[0] < 41.0     # 15 s + hold + sensor reading + 4 s sync + 20 s
 
 
 def test_a_tap_keeps_the_screen_on_for_another_20_s():
@@ -596,3 +596,28 @@ def test_a_firmware_that_cannot_read_the_usb_voltage_falls_back_to_the_charging_
 def test_unplugged_it_sleeps_whichever_way_usb_is_detected():
     assert run(run_for_s=60, saved_pin=11, has_vbus=True).has("light sleep")
     assert run(run_for_s=60, saved_pin=11, has_vbus=False).has("light sleep")
+
+
+# ---- the health snapshot handed to a sync
+
+def test_a_sync_is_given_the_watch_measurements():
+    r = run(b_presses=[press(5, hold=HOLD)], run_for_s=15, saved_pin=11)
+    assert r.health == {"accel_g": 1.0, "gyro_dps": 5.0, "battery_pct": 80, "free_pct": 90, "battery_mv": 3860}
+
+
+def test_the_sync_face_is_up_before_the_sensor_is_read():
+    r = run(b_presses=[press(5, hold=HOLD)], run_for_s=15, saved_pin=11)
+    order = [e for t, e in r.events if t >= 5]
+    assert order.index("screen: SYNC") < order.index("sync")
+
+
+def test_a_watch_that_cannot_read_its_sensor_still_syncs():
+    def no_imu(source):
+        return source.replace("ax, ay, az = M5.Imu.getAccel()\n            gx, gy, gz", "ax, ay, az = M5.Imu.missing()\n            gx, gy, gz")
+    r = run(b_presses=[press(5, hold=HOLD)], run_for_s=15, saved_pin=11, edit=no_imu)
+    assert len(r.times("sync")) == 1 and r.health == {}
+
+
+def test_an_auto_sync_on_charge_also_reports_health():
+    r = run(run_for_s=30, saved_pin=11, charging=True, waiting=2)
+    assert r.has("sync") and r.health["accel_g"] == 1.0

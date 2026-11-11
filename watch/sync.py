@@ -5,11 +5,15 @@
 # server's receipt names the same set_id. Anything else leaves the set on the
 # watch for the next sync. Sending a set twice is safe: the server stores it once.
 # Needs config.py on the watch (see config.example.py).
+#
+# A sync also sets the watch's clock from the internet, and ends by sending
+# the watch's health numbers for the server to judge (docs/api.md).
 import gc
 import json
 import os
 import time
 import network
+import clock
 import config
 
 try:
@@ -111,8 +115,29 @@ def upload_set(set_id):
     return "stored"
 
 
-def sync(report=None):
+def send_health(health, wlan):
+    # The watch's own numbers, plus what only a sync knows: signal strength, the
+    # clock, and how many sets are still here. Never raises: a failed report
+    # must not spoil a sync that worked.
+    try:
+        report = dict(health)
+        try:
+            report["rssi"] = wlan.status("rssi")
+        except Exception:
+            pass
+        report["watch_time"] = clock.unix_now()
+        report["sets_waiting"] = len(pending_sets())
+        post(config.SERVER + "/watch/health", json.dumps(report),
+             {"X-Token": config.TOKEN, "Content-Type": "application/json"}).close()
+        return True
+    except Exception:
+        return False
+
+
+def sync(report=None, health=None):
     # Upload everything that is ready. report(text) is called with progress for the screen.
+    # health: the watch's own measurements (a dict). When given, a sync happens even
+    # with no sets waiting, and ends by sending them to the server.
     # Returns (sets stored, sets still on the watch, problem or None).
     def say(text):
         if report:
@@ -120,14 +145,16 @@ def sync(report=None):
 
     del last_reps[:]
     sets = pending_sets()
-    if not sets:
+    if not sets and health is None:
         return 0, 0, None
     stored = 0
     problem = None
     try:
         say("joining Wi-Fi")
-        if join_wifi() is None:
+        wlan = join_wifi()
+        if wlan is None:
             return 0, len(sets), "no Wi-Fi"
+        clock.set_from_internet()           # sets recorded from now on know when they happened
         for i, set_id in enumerate(sets):
             say("set %d of %d" % (i + 1, len(sets)))
             gc.collect()
@@ -150,6 +177,8 @@ def sync(report=None):
                 stored += 1
             else:
                 problem = result            # "rejected" or "no receipt": keep it, try the next set
+        if health is not None and problem not in ("no server", "bad token"):
+            send_health(health, wlan)
     finally:
         wifi_off()
     return stored, len(pending_sets()), problem
