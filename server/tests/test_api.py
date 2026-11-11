@@ -21,9 +21,11 @@ HEADERS = {"X-Token": "dev-token", "X-Set-Meta": json.dumps(SET_META)}
 
 
 @pytest.fixture(autouse=True)
-def folder(tmp_path, monkeypatch):
-    # Every test gets its own empty folder; the real data/sets is never touched.
+def folder(tmp_path, tmp_path_factory, monkeypatch):
+    # Every test gets its own empty folder and its own empty database; the real
+    # data/ is never touched.
     monkeypatch.setattr("app.main.SET_DIR", tmp_path)
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path_factory.mktemp("db") / "test.db")
     return tmp_path
 
 
@@ -43,11 +45,11 @@ def test_get_health():
 
 
 def test_upload_saves_both_files_and_returns_the_receipt(folder):
-    response = upload()
+    response = upload(headers=with_meta(exercise="curl"))
     assert response.status_code == 201
-    assert response.json() == {"set_id": SET_ID, "stored": True}
+    assert response.json() == {"set_id": SET_ID, "stored": True, "reps": 6}
     assert (folder / f"{SET_ID}.bin").read_bytes() == SET_BIN
-    assert json.loads((folder / f"{SET_ID}.json").read_text()) == SET_META
+    assert json.loads((folder / f"{SET_ID}.json").read_text()) == {**SET_META, "exercise": "curl"}
 
 
 def test_same_upload_twice_gives_the_same_receipt(folder):
@@ -109,3 +111,95 @@ def test_empty_body_is_422(folder):
     assert response.status_code == 422
     assert "readings" in response.json()["detail"]
     assert list(folder.iterdir()) == []
+
+
+# ---- counting on upload, and the database
+
+from app import db  # noqa: E402
+
+CURL = with_meta(exercise="curl")
+
+
+def test_an_uploaded_set_gets_a_row_with_its_count_and_rep_times():
+    upload(headers=CURL)
+    row = db.get_set(SET_ID)
+    assert row["reps"] == 6 and row["exercise"] == "curl"
+    assert row["rep_times"] == [4.7, 7.32, 9.73, 12.07, 14.8, 17.61]
+    assert row["duration_ms"] == SET_META["duration_ms"] and row["late"] == SET_META["late"]
+    assert row["analysis_version"] == 1 and row["received_at"]
+
+
+def test_uploading_twice_keeps_one_row_and_the_first_count():
+    first = upload(headers=CURL)
+    second = upload(headers=with_meta(exercise="pullup"))      # same set, sent again with a different label
+    assert first.json() == second.json() == {"set_id": SET_ID, "stored": True, "reps": 6}
+    assert len(db.list_sets()) == 1 and db.get_set(SET_ID)["exercise"] == "curl"
+
+
+@pytest.mark.parametrize("headers, body", [
+    ({"X-Set-Meta": HEADERS["X-Set-Meta"]}, SET_BIN),            # no token
+    (HEADERS, SET_BIN[:-12]),                                     # cut off
+    (with_meta(set_id="../evil"), SET_BIN),                       # bad ID
+], ids=["no token", "cut off", "bad id"])
+def test_a_rejected_upload_leaves_no_row(headers, body):
+    assert upload(body=body, headers=headers).status_code in (401, 422)
+    assert db.list_sets() == []
+
+
+def test_a_set_the_analyzer_cannot_count_is_still_stored_and_receipted(monkeypatch):
+    # An analysis bug must never leave the watch holding a set it can't hand over.
+    def broken(*args, **kwargs):
+        raise RuntimeError("analysis bug")
+    monkeypatch.setattr("app.main.count_reps", broken)
+    response = upload(headers=CURL)
+    assert response.status_code == 201
+    assert response.json() == {"set_id": SET_ID, "stored": True, "reps": None}
+    assert db.get_set(SET_ID)["reps"] is None and db.get_set(SET_ID)["rep_times"] == []
+
+
+def test_files_that_arrived_before_the_database_get_a_row_on_the_next_upload(folder):
+    # The raw files are there but the row is not (an older server, or a crash in between).
+    (folder / f"{SET_ID}.bin").write_bytes(SET_BIN)
+    (folder / f"{SET_ID}.json").write_text(json.dumps({**SET_META, "exercise": "curl"}))
+    assert db.get_set(SET_ID) is None
+    assert upload(headers=CURL).json()["reps"] == 6
+    assert db.get_set(SET_ID)["reps"] == 6
+
+
+def test_a_value_that_looks_like_sql_is_stored_as_plain_text():
+    # Placeholders, not string-joining: this is data, and the table survives it.
+    nasty = "curl'); DROP TABLE sets; --"
+    upload(headers=with_meta(exercise=nasty))
+    assert db.get_set(SET_ID)["exercise"] == nasty
+    assert len(db.list_sets()) == 1
+
+
+# ---- reading sets back
+
+def test_get_sets_is_empty_before_anything_is_uploaded():
+    response = client.get("/sets")
+    assert response.status_code == 200 and response.json() == []
+
+
+def test_get_sets_lists_newest_first():
+    other_id = "00007-130966"
+    other_meta = json.loads((FIXTURES / f"{other_id}.json").read_text())
+    upload(headers=CURL)
+    client.post("/sets", content=(FIXTURES / f"{other_id}.bin").read_bytes(),
+                headers={"X-Token": "dev-token", "X-Set-Meta": json.dumps({**other_meta, "exercise": "curl"})})
+    listed = client.get("/sets").json()
+    assert [row["set_id"] for row in listed] == [other_id, SET_ID]
+    assert [row["reps"] for row in listed] == [6, 6]
+
+
+def test_get_one_set():
+    upload(headers=CURL)
+    response = client.get(f"/sets/{SET_ID}")
+    assert response.status_code == 200
+    assert response.json()["reps"] == 6 and len(response.json()["rep_times"]) == 6
+
+
+@pytest.mark.parametrize("set_id", ["00099-ffffff", "nonsense", "..%2Fevil"])
+def test_an_unknown_or_malformed_set_id_is_404(set_id):
+    response = client.get(f"/sets/{set_id}")
+    assert response.status_code == 404

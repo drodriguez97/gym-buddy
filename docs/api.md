@@ -18,9 +18,13 @@ Decided 2026-10-30. Fill in the blanks before Sunday.
 - Storage: `GYM_BUDDY_DATA` (default `data/sets`). Each file is written to a temp name and renamed, and the .bin is written last, so a crash never leaves a half set that counts as "already have it".
 - Tested: server/tests/test_api.py (TestClient, fixture set 00004), and over real HTTP with server/scripts/try_upload.py (set 00007 stored, still counts 6 reps).
 
-## GET /sets, GET /sets/{id}
-- Metadata + rep count + exercise + exercise_source (manual | guessed | confirmed).
-- Decide: analyze on upload and store the count, or compute on every GET? Choice: ______ Why: ______
+## GET /sets, GET /sets/{id} (built 2026-11-10)
+- `GET /sets`: every set, newest first. `GET /sets/{id}`: one set, 404 if unknown or not shaped like a set ID.
+- Each set: set_id, exercise, reps, rep_times (seconds into the set of each rep), duration_ms, rate_hz, late, analysis_version, received_at.
+- Decided: analyze on upload and store the count. Why: counting takes milliseconds, so the upload stays fast, the dashboard reads a ready number instead of opening raw files, and the receipt can carry the count back to the watch. `analysis_version` marks which analyzer produced each count, so old sets can be found and recounted when the analyzer improves.
+- The receipt is now {"set_id": "...", "stored": true, "reps": 6}. `reps` is null if the analyzer failed; the set is stored and receipted anyway, because the raw file is safe and can be recounted.
+- Storage: SQLite, one file (`GYM_BUDDY_DB`, default `data/gymbuddy.db`), one row per set. The raw files stay the truth; `scripts/backfill.py` rebuilds rows from them.
+- Still to do: exercise_source, and no password on the GET endpoints yet (needed before AWS).
 
 ## GET /workouts
 - A workout = sets with less than N minutes between them (N = ______). Needs started_at from NTP.

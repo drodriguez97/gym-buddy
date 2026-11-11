@@ -31,6 +31,7 @@ class Watch:
         self.flash.mkdir()
         self.server_dir = tmp_path / "server_sets"
         monkeypatch.setattr(server, "SET_DIR", self.server_dir)
+        monkeypatch.setattr(server.db, "DB_PATH", tmp_path / "server_db" / "test.db")
         self.client = TestClient(server.app)
         self.wifi_available = True
         self.radio_on = False
@@ -305,7 +306,17 @@ def test_rep_counts_in_the_receipt_are_kept_for_the_screen(watch):
     assert watch.sync.last_reps == [6, 6]
 
 
+def test_the_real_server_sends_a_count_for_every_set(watch):
+    assert watch.sync.sync() == (2, 0, None)
+    assert len(watch.sync.last_reps) == 2 and all(isinstance(n, int) for n in watch.sync.last_reps)
+
+
 def test_a_server_that_sends_no_counts_is_fine(watch):
+    def no_counts(url, data, headers):
+        set_id = json.loads(headers["X-Set-Meta"])["set_id"]
+        watch.post_to_server(url, data, headers)
+        return Reply(201, {"set_id": set_id, "stored": True})
+    watch.post = no_counts
     assert watch.sync.sync() == (2, 0, None)
     assert watch.sync.last_reps == []
 
@@ -313,4 +324,4 @@ def test_a_server_that_sends_no_counts_is_fine(watch):
 def test_counts_from_an_earlier_sync_are_forgotten(watch):
     watch.sync.last_reps.append(99)
     watch.sync.sync()
-    assert watch.sync.last_reps == []
+    assert 99 not in watch.sync.last_reps and len(watch.sync.last_reps) == 2

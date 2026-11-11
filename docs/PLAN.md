@@ -82,8 +82,8 @@ M1, piece by piece:
 |---|---|
 | Watch joins Wi-Fi and reaches the server | Done |
 | Watch uploads, checks the receipt, deletes (button B) | Done; 26 real sets on the server |
-| Server counts on upload and saves a row (SQLite) | Next |
-| `GET /sets`, `GET /sets/{id}` | Next |
+| Server counts on upload and saves a row (SQLite) | Done 11-10 |
+| `GET /sets`, `GET /sets/{id}` | Done 11-10 |
 | Set a set's exercise and recount | Next |
 | Page listing sets and reps | Next |
 

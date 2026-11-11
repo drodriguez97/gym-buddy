@@ -5,18 +5,52 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Header, HTTPException
 
+from app import db
+from app.analysis import count_reps, load_set
+
 app = FastAPI(title="gym-buddy")
 
 TOKEN = os.environ.get("GYM_BUDDY_TOKEN", "dev-token")
 SET_DIR = Path(os.environ.get("GYM_BUDDY_DATA", "data/sets"))
 SET_ID = re.compile(r"^\d{5}-[0-9a-f]{6}$")     # e.g. 00004-a956cd, nothing else
 BYTES_PER_READING = 12                          # 6 int16s: accel xyz, gyro xyz
+ANALYSIS_VERSION = 1                            # raise when count_reps changes, so old rows can be found and recounted
 
 
 def save_atomically(path, data):
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(data)
     os.replace(tmp, path)
+
+
+def analyze(set_id):
+    # (reps, seconds of each rep's top) for a stored set, or (None, []) if the
+    # analyzer fails. A set is never refused because it couldn't be counted:
+    # the raw file is safe, and it can be recounted later.
+    try:
+        meta, _, accel, gyro = load_set(SET_DIR / f"{set_id}.bin")
+        peaks, _, _ = count_reps(accel, meta["rate_hz"], gyro, exercise=meta.get("exercise"))
+        return len(peaks), [round(float(p) / meta["rate_hz"], 2) for p in peaks]
+    except Exception:
+        return None, []
+
+
+def record(set_id):
+    # The set's row, counting it first if it has none yet. Also covers sets
+    # whose files arrived before the database existed.
+    row = db.get_set(set_id)
+    if row is None:
+        meta = json.loads((SET_DIR / f"{set_id}.json").read_text())
+        reps, rep_times = analyze(set_id)
+        db.add_set(meta, reps, rep_times, ANALYSIS_VERSION)
+        row = db.get_set(set_id)
+    return row
+
+
+def receipt(set_id):
+    # What the watch waits for before deleting its copy. reps is extra: the
+    # watch shows it after a sync.
+    return {"set_id": set_id, "stored": True, "reps": record(set_id)["reps"]}
 
 
 @app.get("/health")
@@ -57,11 +91,28 @@ async def upload_sets(
     # Already have it? Same receipt, nothing rewritten.
     path = SET_DIR / f"{set_id}.bin"
     if path.exists():
-        return {"set_id": set_id, "stored": True}
+        return receipt(set_id)
 
     # The .bin is what the duplicate check looks at, so it is written last.
     SET_DIR.mkdir(parents=True, exist_ok=True)
     save_atomically(SET_DIR / f"{set_id}.json", json.dumps(meta).encode())
     save_atomically(path, data)
 
-    return {"set_id": set_id, "stored": True}
+    # Raw files first, then the count: a crash in between loses nothing,
+    # because the next upload of this set finds the files and counts them.
+    return receipt(set_id)
+
+
+@app.get("/sets")
+def list_sets():
+    # Every set, newest first.
+    return db.list_sets()
+
+
+@app.get("/sets/{set_id}")
+def get_set(set_id: str):
+    # 404 for an unknown set, and for anything that isn't shaped like a set ID.
+    row = db.get_set(set_id) if SET_ID.match(set_id) else None
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such set")
+    return row
