@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from app import db
 from app.analysis import count_reps, load_set
@@ -15,6 +17,16 @@ SET_DIR = Path(os.environ.get("GYM_BUDDY_DATA", "data/sets"))
 SET_ID = re.compile(r"^\d{5}-[0-9a-f]{6}$")     # e.g. 00004-a956cd, nothing else
 BYTES_PER_READING = 12                          # 6 int16s: accel xyz, gyro xyz
 ANALYSIS_VERSION = 1                            # raise when count_reps changes, so old rows can be found and recounted
+PAGES = Path(__file__).parent / "static"
+# The exercises the watch offers, in its order: (name stored with the set, label shown to people).
+EXERCISES = [
+    ("curl", "Curl"),
+    ("shoulder_press", "Shoulder press"),
+    ("chest_press", "Chest press"),
+    ("row", "Row"),
+    ("pullup", "Pull-up"),
+    ("pushup", "Push-up"),
+]
 
 
 def save_atomically(path, data):
@@ -23,13 +35,14 @@ def save_atomically(path, data):
     os.replace(tmp, path)
 
 
-def analyze(set_id):
+def analyze(set_id, exercise=None):
     # (reps, seconds of each rep's top) for a stored set, or (None, []) if the
     # analyzer fails. A set is never refused because it couldn't be counted:
     # the raw file is safe, and it can be recounted later.
+    # exercise: count as this one; by default, the one the watch saved with the set.
     try:
         meta, _, accel, gyro = load_set(SET_DIR / f"{set_id}.bin")
-        peaks, _, _ = count_reps(accel, meta["rate_hz"], gyro, exercise=meta.get("exercise"))
+        peaks, _, _ = count_reps(accel, meta["rate_hz"], gyro, exercise=exercise or meta.get("exercise"))
         return len(peaks), [round(float(p) / meta["rate_hz"], 2) for p in peaks]
     except Exception:
         return None, []
@@ -116,3 +129,30 @@ def get_set(set_id: str):
     if row is None:
         raise HTTPException(status_code=404, detail="no such set")
     return row
+
+
+@app.get("/exercises")
+def list_exercises():
+    # The dashboard's dropdown is filled from this, so the list lives in one place.
+    return [{"name": name, "label": label} for name, label in EXERCISES]
+
+
+class ExerciseChange(BaseModel):
+    exercise: str
+
+
+@app.put("/sets/{set_id}/exercise")
+def change_exercise(set_id: str, change: ExerciseChange):
+    # The watch had the wrong exercise picked: correct it and recount from the raw file.
+    if not SET_ID.match(set_id) or db.get_set(set_id) is None:
+        raise HTTPException(status_code=404, detail="no such set")
+    if change.exercise not in [name for name, _ in EXERCISES]:
+        raise HTTPException(status_code=422, detail="unknown exercise")
+    reps, rep_times = analyze(set_id, change.exercise)
+    db.update_set(set_id, change.exercise, reps, rep_times, ANALYSIS_VERSION)
+    return db.get_set(set_id)
+
+
+@app.get("/", include_in_schema=False)
+def dashboard():
+    return FileResponse(PAGES / "index.html")

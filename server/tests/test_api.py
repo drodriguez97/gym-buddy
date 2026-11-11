@@ -203,3 +203,54 @@ def test_get_one_set():
 def test_an_unknown_or_malformed_set_id_is_404(set_id):
     response = client.get(f"/sets/{set_id}")
     assert response.status_code == 404
+
+
+# ---- correcting the exercise, and the page
+
+PULLUPS = "00018-f6719e"                         # 6 pull-ups: only counts right when told it's a pull-up
+
+
+def upload_fixture(set_id, **meta_changes):
+    meta = {**json.loads((FIXTURES / f"{set_id}.json").read_text()), **meta_changes}
+    return client.post("/sets", content=(FIXTURES / f"{set_id}.bin").read_bytes(),
+                       headers={"X-Token": "dev-token", "X-Set-Meta": json.dumps(meta)})
+
+
+def test_exercises_are_listed_in_the_watch_order():
+    listed = client.get("/exercises").json()
+    assert [e["name"] for e in listed] == ["curl", "shoulder_press", "chest_press", "row", "pullup", "pushup"]
+    assert listed[0] == {"name": "curl", "label": "Curl"}
+
+
+def test_changing_the_exercise_recounts_from_the_raw_file():
+    upload_fixture(PULLUPS, exercise="curl")                     # the wrong exercise was picked on the watch
+    response = client.put(f"/sets/{PULLUPS}/exercise", json={"exercise": "pullup"})
+    assert response.status_code == 200
+    assert response.json()["exercise"] == "pullup" and response.json()["reps"] == 6
+    assert len(response.json()["rep_times"]) == 6
+    assert db.get_set(PULLUPS)["reps"] == 6                      # saved, not just returned
+
+
+def test_changing_the_exercise_leaves_the_raw_files_alone(folder):
+    upload_fixture(PULLUPS, exercise="curl")
+    before = (folder / f"{PULLUPS}.bin").read_bytes(), (folder / f"{PULLUPS}.json").read_text()
+    client.put(f"/sets/{PULLUPS}/exercise", json={"exercise": "pullup"})
+    assert ((folder / f"{PULLUPS}.bin").read_bytes(), (folder / f"{PULLUPS}.json").read_text()) == before
+
+
+def test_an_exercise_that_is_not_on_the_list_is_refused():
+    upload_fixture(PULLUPS, exercise="curl")
+    response = client.put(f"/sets/{PULLUPS}/exercise", json={"exercise": "juggling"})
+    assert response.status_code == 422 and response.json()["detail"] == "unknown exercise"
+    assert db.get_set(PULLUPS)["exercise"] == "curl"
+
+
+@pytest.mark.parametrize("set_id", ["00099-ffffff", "nonsense"])
+def test_changing_the_exercise_of_an_unknown_set_is_404(set_id):
+    assert client.put(f"/sets/{set_id}/exercise", json={"exercise": "curl"}).status_code == 404
+
+
+def test_the_dashboard_page_is_served_at_the_root():
+    response = client.get("/")
+    assert response.status_code == 200 and response.headers["content-type"].startswith("text/html")
+    assert "<title>Gym Buddy</title>" in response.text

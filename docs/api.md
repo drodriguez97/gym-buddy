@@ -29,10 +29,18 @@ Decided 2026-10-30. Fill in the blanks before Sunday.
 ## GET /workouts
 - A workout = sets with less than N minutes between them (N = ______). Needs started_at from NTP.
 
-## Exercise labeling
-- v1: dropdown in the dashboard, defaults to the previous set's exercise. Not on the watch.
-- Exercise list comes from the server (GET /exercises), not hard-coded in the dashboard.
+## Exercise labeling (built 2026-11-10)
+- The exercise is picked on the watch before the set and arrives in the set's .json (see PLAN.md, "Decided").
+- `GET /exercises`: the list, in the watch's order, as [{"name": "curl", "label": "Curl"}, ...]. The dashboard's dropdown is filled from it.
+- `PUT /sets/{id}/exercise` with {"exercise": "pullup"}: corrects a wrong pick and recounts from the raw file. Returns the updated set. 404 for an unknown set, 422 for an exercise not on the list. The raw files are never changed.
+- Still to do: no password on this endpoint yet (needed before AWS). The watch and the server each hold a copy of the list; they must match.
 - Later: the server fills a guess, the user confirms. Confirmed sets are training data.
+
+## The dashboard (built 2026-11-10)
+- `GET /`: one page, server/app/static/index.html. Plain HTML and JavaScript, no framework and no build step.
+- Today: total reps, then one card per exercise with a rep count per set. One set: reps, the time from each rep to the next, and the exercise dropdown.
+- It asks `GET /sets` every 4 seconds while visible, so a sync shows up without a reload.
+- Days are grouped by when a set was received, because sets have no start time yet.
 
 ## Watch upload loop (after POST /sets exists)
 - Join Wi-Fi, sync clock, for each set in /flash/sets: POST, check receipt, delete.

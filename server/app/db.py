@@ -65,3 +65,11 @@ def list_sets():
     # Newest first. The set_id starts with the watch's sequence number, so it orders them.
     with closing(connect()) as db:
         return [as_dict(row) for row in db.execute("SELECT * FROM sets ORDER BY set_id DESC")]
+
+
+def update_set(set_id, exercise, reps, rep_times, analysis_version):
+    # A corrected exercise and the recount that goes with it. The raw files are not touched.
+    with closing(connect()) as db, db:
+        db.execute(
+            "UPDATE sets SET exercise = ?, reps = ?, rep_times = ?, analysis_version = ? WHERE set_id = ?",
+            (exercise, reps, json.dumps(rep_times), analysis_version, set_id))
