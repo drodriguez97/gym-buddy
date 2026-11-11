@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app import db
+from app import coach, db
 from app.analysis import count_reps, load_set
 
 app = FastAPI(title="gym-buddy")
@@ -128,7 +128,13 @@ def get_set(set_id: str):
     row = db.get_set(set_id) if SET_ID.match(set_id) else None
     if row is None:
         raise HTTPException(status_code=404, detail="no such set")
-    return row
+    return {**row, **coach.pace(row["rep_times"])}     # plus gaps, fastest_s and slowdown_pct
+
+
+@app.get("/workouts")
+def list_workouts():
+    # Sets grouped into workouts, newest first, each exercise with its sets and a suggestion.
+    return coach.workouts(db.list_sets(), dict(EXERCISES))
 
 
 @app.get("/exercises")
@@ -150,7 +156,7 @@ def change_exercise(set_id: str, change: ExerciseChange):
         raise HTTPException(status_code=422, detail="unknown exercise")
     reps, rep_times = analyze(set_id, change.exercise)
     db.update_set(set_id, change.exercise, reps, rep_times, ANALYSIS_VERSION)
-    return db.get_set(set_id)
+    return get_set(set_id)
 
 
 @app.get("/", include_in_schema=False)

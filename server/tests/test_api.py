@@ -276,3 +276,49 @@ def test_archiving_moves_the_files_and_removes_the_row_and_restoring_undoes_it(f
     assert tool.restore({4}) == [SET_ID]
     assert (folder / f"{SET_ID}.bin").read_bytes() == original
     assert db.get_set(SET_ID)["reps"] == 6 and len(db.list_sets()) == 2
+
+
+# ---- pace, workouts and the start time
+
+def test_one_set_comes_with_its_pace():
+    upload(headers=CURL)
+    body = client.get(f"/sets/{SET_ID}").json()
+    assert body["gaps"] == [2.62, 2.41, 2.34, 2.73, 2.81] and body["slowdown_pct"] == 20
+
+
+def test_workouts_group_the_uploaded_sets_under_their_exercise():
+    upload(headers=CURL)
+    upload_fixture("00007-130966", exercise="curl")
+    upload_fixture(PULLUPS, exercise="pullup")
+    (workout,) = client.get("/workouts").json()
+    assert workout["sets"] == 3 and workout["reps"] == 18
+    assert [(e["label"], [s["reps"] for s in e["sets"]]) for e in workout["exercises"]] == [
+        ("Curl", [6, 6]), ("Pull-up", [6])]
+    assert workout["exercises"][0]["suggestion"]["kind"] in ("more", "stay", "less")
+
+
+def test_workouts_is_empty_before_anything_is_uploaded():
+    assert client.get("/workouts").json() == []
+
+
+def test_the_watch_start_time_is_stored_and_a_clock_that_was_never_set_is_not():
+    upload(headers=with_meta(exercise="curl", started_at=1794300000))
+    assert db.get_set(SET_ID)["started_at"] == 1794300000
+    upload_fixture(PULLUPS, started_at=12345)               # a watch that had not synced its clock yet
+    assert db.get_set(PULLUPS)["started_at"] is None
+
+
+def test_a_database_made_before_start_times_gains_the_column(tmp_path, monkeypatch):
+    # An old file with the first version of the table must keep working.
+    import sqlite3
+    old = tmp_path / "old.db"
+    with sqlite3.connect(old) as raw:
+        raw.execute("CREATE TABLE sets (set_id TEXT PRIMARY KEY, exercise TEXT, reps INTEGER, rep_times TEXT,"
+                    " duration_ms INTEGER NOT NULL, rate_hz REAL NOT NULL, late INTEGER NOT NULL,"
+                    " analysis_version INTEGER NOT NULL, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+        raw.execute("INSERT INTO sets (set_id, reps, rep_times, duration_ms, rate_hz, late, analysis_version)"
+                    " VALUES ('00001-aaaaaa', 6, '[]', 1000, 100.0, 0, 1)")
+    monkeypatch.setattr("app.db.DB_PATH", old)
+    assert db.get_set("00001-aaaaaa")["reps"] == 6 and db.get_set("00001-aaaaaa")["started_at"] is None
+    upload(headers=with_meta(exercise="curl", started_at=1794300000))
+    assert db.get_set(SET_ID)["started_at"] == 1794300000

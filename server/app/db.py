@@ -27,13 +27,30 @@ CREATE TABLE IF NOT EXISTS sets (
 """
 
 
+# Columns added after the first version. A database made before them gets them
+# added on its next open, so an old file keeps working (a tiny migration).
+ADDED_COLUMNS = {
+    "started_at": "INTEGER",                # unix seconds (UTC) when the watch started the set; empty if it didn't know the time
+}
+
+
 def connect():
     # A short-lived connection per request: simple, and plenty for one watch.
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row            # rows read like dicts: row["reps"]
     db.execute(SCHEMA)
+    have = {column[1] for column in db.execute("PRAGMA table_info(sets)")}
+    for name, kind in ADDED_COLUMNS.items():
+        if name not in have:
+            db.execute(f"ALTER TABLE sets ADD COLUMN {name} {kind}")    # names come from the dict above, never from a request
     return db
+
+
+def plausible_time(value):
+    # The watch's clock is only right after it has synced with the internet.
+    # Anything outside 2026-2100 means it wasn't set; store nothing.
+    return int(value) if isinstance(value, (int, float)) and 1767225600 <= value < 4102444800 else None
 
 
 def as_dict(row):
@@ -49,11 +66,11 @@ def add_set(meta, reps, rep_times, analysis_version):
     # The ? placeholders keep the values as data; they can never run as SQL.
     with closing(connect()) as db, db:      # the inner "db" commits, or rolls back on an error
         db.execute(
-            "INSERT OR IGNORE INTO sets (set_id, exercise, reps, rep_times, duration_ms, rate_hz, late, analysis_version)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO sets (set_id, exercise, reps, rep_times, duration_ms, rate_hz, late,"
+            " analysis_version, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (meta["set_id"], meta.get("exercise"), reps, json.dumps(rep_times),
              int(meta.get("duration_ms", 0)), float(meta.get("rate_hz", 0)), int(meta.get("late", 0)),
-             analysis_version))
+             analysis_version, plausible_time(meta.get("started_at"))))
 
 
 def get_set(set_id):
