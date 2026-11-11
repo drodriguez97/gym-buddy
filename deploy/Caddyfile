@@ -1,0 +1,5 @@
+# Caddy stands in front of the server and adds HTTPS. It gets a certificate
+# for the domain by itself (Let's Encrypt) and renews it.
+{$GYM_BUDDY_DOMAIN} {
+	reverse_proxy app:8000
+}

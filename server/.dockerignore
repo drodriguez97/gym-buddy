@@ -1,0 +1,7 @@
+# Kept out of the image: recorded sets and the database (they live on the volume), tests, caches.
+data/
+tests/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+*.pyc

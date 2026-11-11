@@ -1,0 +1,38 @@
+# Gym Buddy on one machine.
+#
+#   docker compose up -d --build                  the server on port 8000 (laptop, or plain HTTP)
+#   docker compose --profile https up -d --build  the same, plus Caddy answering https://<your domain>
+#
+# The secrets come from a file named .env next to this one (copy .env.example). It is not in Git.
+
+services:
+  app:
+    build: ./server
+    restart: unless-stopped             # comes back after a crash or a reboot
+    environment:
+      # Compose refuses to start if either is missing, so the server never runs with the development defaults.
+      GYM_BUDDY_TOKEN: ${GYM_BUDDY_TOKEN:?put GYM_BUDDY_TOKEN in .env}
+      GYM_BUDDY_PASSWORD: ${GYM_BUDDY_PASSWORD:?put GYM_BUDDY_PASSWORD in .env}
+    volumes:
+      - data:/data                      # the database and the raw sets: they outlive the container
+    ports:
+      - "8000:8000"                     # the watch uploads here
+
+  caddy:
+    image: caddy:2
+    profiles: [https]                   # only started with --profile https
+    restart: unless-stopped
+    environment:
+      GYM_BUDDY_DOMAIN: ${GYM_BUDDY_DOMAIN:-localhost}
+    ports:
+      - "80:80"                         # needed to get the certificate, and to send http on to https
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data                     # the certificate, so a restart doesn't ask for a new one
+    depends_on:
+      - app
+
+volumes:
+  data:
+  caddy:

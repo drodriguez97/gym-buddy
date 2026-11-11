@@ -1,0 +1,6 @@
+# What the server needs to run, at the versions it is tested with.
+# requirements.txt adds the tools for testing and plotting on a laptop.
+fastapi==0.162.2
+uvicorn==0.54.0
+numpy==2.2.6
+scipy==1.15.3
