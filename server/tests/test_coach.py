@@ -12,7 +12,7 @@ def set_(reps, slowdown=None, **more):
 
 def test_pace_is_the_time_from_each_rep_to_the_next():
     p = coach.pace([1.0, 2.0, 3.0, 4.2])
-    assert p["gaps"] == [1.0, 1.0, 1.2] and p["fastest_s"] == 1.0 and p["slowdown_pct"] == 20
+    assert p["gaps"] == [1.0, 1.0, 1.2] and p["usual_s"] == 1.0 and p["slowdown_pct"] == 20
 
 
 def test_a_steady_set_has_no_slowdown():
@@ -27,7 +27,16 @@ def test_fewer_than_three_reps_is_too_few_to_judge(rep_times):
 def test_a_real_recorded_set():
     # Set 00004's rep times, as the analyzer found them.
     p = coach.pace([4.7, 7.32, 9.73, 12.07, 14.8, 17.61])
-    assert p["gaps"] == [2.62, 2.41, 2.34, 2.73, 2.81] and p["slowdown_pct"] == 20
+    assert p["gaps"] == [2.62, 2.41, 2.34, 2.73, 2.81] and p["usual_s"] == 2.62 and p["slowdown_pct"] == 7
+
+
+def test_one_quick_rep_does_not_make_a_steady_set_look_slow():
+    # Set 00009: a short first gap, then steady. Against the fastest gap this read as 38% slower.
+    assert coach.pace([0, 1.25, 3.09, 4.85, 6.62, 8.34])["slowdown_pct"] == 0
+
+
+def test_a_last_rep_faster_than_usual_is_not_a_negative_slowdown():
+    assert coach.pace([0, 2.0, 4.0, 5.0])["slowdown_pct"] == 0
 
 
 # ---- suggestions

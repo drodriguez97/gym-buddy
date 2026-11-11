@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#0B0B0C">
 <title>Gym Buddy</title>
 <style>
-  /* One column, phone first. One question per screen, with the answer on top. */
+  /* One column, phone first. One question per screen, with the answer on top.
+     Colours mean the same as on the watch: green = good, amber = needs a look, orange = effort or trouble. */
   :root {
     --bg: #0B0B0C; --card: #1C1C1E; --chip: #2A2A2D; --line: #2A2A2D;
     --text: #F5F5F7; --muted: #9A9AA0;
@@ -19,14 +20,16 @@
          -webkit-text-size-adjust: 100%; }
   .wrap { max-width: 480px; margin: 0 auto; min-height: 100vh;
           padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-                   max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+                   calc(76px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
           display: flex; flex-direction: column; gap: 14px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 32px; }
   h1 { font-size: 20px; font-weight: 600; margin: 0; }
-  .status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; text-align: right; }
+  main { display: flex; flex-direction: column; gap: 14px; }
+  .status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; text-align: right;
+            background: none; padding: 6px 0; min-height: 32px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
-  .dot.stale { background: var(--wait); }
-  .dot.down { background: var(--effort); }
+  .dot.warn { background: var(--wait); }
+  .dot.fail { background: var(--effort); }
   .hero { font-size: 64px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
   .hero small { font-size: 18px; font-weight: 400; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
   .muted { color: var(--muted); font-size: 14px; }
@@ -37,22 +40,36 @@
   .chip { min-width: 48px; min-height: 44px; padding: 0 12px; border-radius: 10px; background: var(--chip);
           font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .chip.unknown { color: var(--muted); }
+  .chip.slowed { background: var(--effort-bg); color: var(--effort-text); }
   .chip:active { transform: scale(0.97); }
   .link { background: none; padding: 10px 0; min-height: 44px; color: var(--muted); font-size: 15px; text-align: left; }
   .day { display: flex; justify-content: space-between; align-items: center; width: 100%; background: none;
-         padding: 12px 0; min-height: 44px; border-top: 1px solid var(--line); font-size: 15px; }
-  .day span:last-child { color: var(--muted); font-size: 14px; }
+         padding: 12px 0; min-height: 44px; border-top: 1px solid var(--line); font-size: 15px; text-align: left; gap: 12px; }
+  .day span:last-child { color: var(--muted); font-size: 14px; flex: none; }
   .bars { display: flex; align-items: flex-end; gap: 8px; height: 120px; }
   .bar { flex: 1; border-radius: 5px 5px 0 0; min-height: 4px; background: var(--good); }
   .scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   select { font: inherit; color: var(--text); background: var(--chip); border: 0; border-radius: 10px;
            padding: 0 12px; min-height: 44px; max-width: 60%; }
-  .note { font-size: 13px; color: var(--muted); }
+  .note { font-size: 14px; color: var(--muted); }
   .note.effort { color: var(--effort-text); }
   .note.good { color: var(--good); }
   .empty { text-align: center; padding: 48px 8px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .empty h2 { font-size: 20px; margin: 8px 0 0; }
+  .check { display: flex; gap: 12px; align-items: flex-start; }
+  .check + .check { border-top: 1px solid var(--line); padding-top: 10px; }
+  .mark { width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center;
+          font-size: 13px; font-weight: 700; background: var(--good); color: #0B0B0C; margin-top: 1px; }
+  .mark.warn { background: var(--wait); }
+  .mark.fail { background: var(--effort); }
+  .check .body { flex: 1; min-width: 0; }
+  .check .value { color: var(--muted); font-size: 14px; text-align: right; flex: none; max-width: 50%; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line);
+        padding-bottom: env(safe-area-inset-bottom); }
+  nav div { max-width: 480px; margin: 0 auto; display: flex; }
+  nav button { flex: 1; min-height: 56px; background: none; color: var(--muted); font-size: 13px; }
+  nav button[aria-current="page"] { color: var(--good); font-weight: 600; }
   :focus-visible { outline: 2px solid var(--good); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { .chip:active { transform: none; } }
 </style>
@@ -61,28 +78,36 @@
 <div class="wrap">
   <header>
     <h1>Gym Buddy</h1>
-    <div class="status" id="status" aria-live="polite"></div>
+    <button class="status" id="status" aria-live="polite" aria-label="Watch status"></button>
   </header>
-  <main id="view" style="display:flex;flex-direction:column;gap:14px"></main>
+  <main id="view"></main>
 </div>
+<nav aria-label="Sections"><div>
+  <button id="nav-today">Today</button>
+  <button id="nav-watch">Watch</button>
+</div></nav>
 
 <script>
-// The whole dashboard: it reads GET /sets and GET /exercises, and draws two
-// screens. Today: what did I just do? One set: how did it go?
+// The whole dashboard. It asks the server for workouts and the watch's health,
+// and draws three screens:
+//   Today: what did I just do?     One set: how did it go?     Watch: is everything working?
+// The server does the thinking (counts, pace, suggestions, verdicts); this page only draws.
 const REFRESH_MS = 4000;      // look for newly synced sets this often while the page is visible
-const STALE_MIN = 60 * 24;    // the status dot turns amber when the last sync is older than this
+const SLOWED_PCT = 25;        // a set whose last rep slowed this much is tinted
 
-let sets = [];                // every set, newest first, as the server returned them
+let workouts = [];            // newest first, as GET /workouts returned them
+let health = null;            // GET /watch/health
 let exercises = [];           // [{name, label}] for the dropdown
-let shownDay = null;          // which day is on screen; null = the most recent one
-let lastJson = "";            // what was last drawn, so an unchanged refresh doesn't redraw
+let shown = 0;                // which workout is on screen: 0 = the newest
+let openSet = null;           // the set on the detail screen, as GET /sets/{id} returned it
+let lastDrawn = "";           // what was last drawn, so an unchanged refresh doesn't redraw
 let serverDown = false;
 
 const view = document.getElementById("view");
 const statusEl = document.getElementById("status");
 
 function el(tag, attrs, ...children) {
-  // Builds elements with textContent, never innerHTML: nothing from the server can run as markup.
+  // Builds elements with text, never innerHTML: nothing from the server can run as markup.
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs || {})) {
     if (key === "class") node.className = value;
@@ -93,27 +118,8 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
-function labelOf(name) {
-  if (!name) return "No exercise picked";
-  const match = exercises.find(e => e.name === name);
-  return match ? match.label : name;
-}
-
-function receivedAt(set) {
-  return new Date(set.received_at.replace(" ", "T") + "Z");   // the server stores UTC
-}
-
-function dayKey(set) {
-  const d = receivedAt(set);
-  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-}
-
-function dayTitle(key) {
-  const today = new Date();
-  const todayKey = dayKey({received_at: today.toISOString().slice(0, 19).replace("T", " ")});
-  if (key === todayKey) return "Today";
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
+function plural(n, word) {
+  return n + " " + word + (n === 1 ? "" : "s");
 }
 
 function ago(date) {
@@ -126,89 +132,96 @@ function ago(date) {
   return days + (days === 1 ? " day ago" : " days ago");
 }
 
-function totalReps(list) {
-  return list.reduce((sum, set) => sum + (set.reps || 0), 0);
+function workoutTitle(workout) {
+  const date = new Date(workout.started_at);
+  const today = new Date().toDateString() === date.toDateString();
+  const day = today ? "Today" : date.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
+  const time = date.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+  // Sets recorded before the watch knew the time are dated by when they were synced.
+  return day + (workout.timed ? ", " + time : ", synced " + time);
 }
 
-function plural(n, word) {
-  return n + " " + word + (n === 1 ? "" : "s");
+function route() {
+  const hash = location.hash;
+  if (hash === "#watch") return {screen: "watch"};
+  const match = hash.match(/^#set=(.+)$/);
+  return match ? {screen: "set", id: match[1]} : {screen: "today"};
 }
 
 function drawStatus() {
   statusEl.replaceChildren();
   if (serverDown) {
-    statusEl.append(el("span", {class: "dot down"}), "Can't reach the server");
-  } else if (sets.length) {
-    const last = receivedAt(sets[0]);
-    const stale = (Date.now() - last) / 60000 > STALE_MIN;
-    statusEl.append(el("span", {class: "dot" + (stale ? " stale" : "")}), "Synced " + ago(last));
+    statusEl.append(el("span", {class: "dot fail"}), "Can't reach the server");
+  } else if (health && health.seen) {
+    statusEl.append(el("span", {class: "dot " + health.status}), "Watch seen " + ago(new Date(health.received_at)));
+  } else if (health) {
+    statusEl.append(el("span", {class: "dot warn"}), "No word from the watch yet");
+  }
+  const screen = route().screen;
+  document.getElementById("nav-today").toggleAttribute("aria-current", screen !== "watch");
+  document.getElementById("nav-watch").toggleAttribute("aria-current", screen === "watch");
+  for (const id of ["nav-today", "nav-watch"]) {
+    const button = document.getElementById(id);
+    if (button.hasAttribute("aria-current")) button.setAttribute("aria-current", "page");
   }
 }
 
 function drawToday() {
-  if (!sets.length) {
+  if (!workouts.length) {
     view.replaceChildren(el("div", {class: "empty"},
       el("h2", {}, "No sets yet"),
-      el("div", {class: "muted"}, "Record a set on your watch, then hold B to sync.")));
+      el("div", {class: "muted"}, "Pick an exercise on your watch, record a set, then hold B to sync.")));
     return;
   }
-  const days = [];                              // [[key, sets]], newest day first
-  for (const set of sets) {
-    const key = dayKey(set);
-    if (!days.length || days[days.length - 1][0] !== key) days.push([key, []]);
-    days[days.length - 1][1].push(set);
-  }
-  const [key, list] = days.find(d => d[0] === shownDay) || days[0];
-  const inOrder = [...list].reverse();          // the order they were done
-  const groups = [];                            // [[exercise, sets]], in the order first done
-  for (const set of inOrder) {
-    let group = groups.find(g => g[0] === set.exercise);
-    if (!group) groups.push(group = [set.exercise, []]);
-    group[1].push(set);
-  }
-
+  const workout = workouts[Math.min(shown, workouts.length - 1)];
+  const facts = [plural(workout.sets, "set"), plural(workout.exercises.length, "exercise")];
+  if (workout.timed) facts.push(workout.minutes + " min");
   const nodes = [
     el("div", {},
-      el("div", {class: "muted"}, dayTitle(key)),
-      el("div", {class: "hero"}, String(totalReps(list)), el("small", {}, "reps")),
-      el("div", {class: "muted"}, plural(list.length, "set") + " · " + plural(groups.length, "exercise"))),
+      el("div", {class: "muted"}, workoutTitle(workout)),
+      el("div", {class: "hero"}, String(workout.reps), el("small", {}, workout.reps === 1 ? "rep" : "reps")),
+      el("div", {class: "muted"}, facts.join(" · "))),
   ];
-  for (const [exercise, group] of groups) {
-    nodes.push(el("section", {class: "card"},
-      el("h2", {}, labelOf(exercise)),
-      el("div", {class: "chips"}, ...group.map((set, i) =>
-        el("button", {class: "chip" + (set.reps === null ? " unknown" : ""),
-                      "aria-label": "Set " + (i + 1) + ", " + (set.reps === null ? "not counted" : plural(set.reps, "rep")),
-                      onclick: () => { location.hash = "set=" + set.set_id; }},
-           set.reps === null ? "?" : String(set.reps))))));
+  for (const exercise of workout.exercises) {
+    const card = el("section", {class: "card"},
+      el("h2", {}, exercise.label),
+      el("div", {class: "chips"}, ...exercise.sets.map((set, i) => {
+        const slowed = set.slowdown_pct !== null && set.slowdown_pct >= SLOWED_PCT;
+        const spoken = "Set " + (i + 1) + ", " + (set.reps === null ? "not counted" : plural(set.reps, "rep"))
+                     + (slowed ? ", slowed at the end" : "");
+        return el("button", {class: "chip" + (set.reps === null ? " unknown" : "") + (slowed ? " slowed" : ""),
+                             "aria-label": spoken, onclick: () => { location.hash = "set=" + set.set_id; }},
+                  set.reps === null ? "?" : String(set.reps));
+      })));
+    if (exercise.suggestion) {
+      const tone = {more: " good", less: " effort"}[exercise.suggestion.kind] || "";
+      card.append(el("div", {class: "note" + tone}, exercise.suggestion.text));
+    }
+    nodes.push(card);
   }
-  const others = days.filter(d => d[0] !== key);
-  if (others.length) {
+  if (workouts.length > 1) {
     nodes.push(el("div", {},
-      el("div", {class: "muted", style: "margin: 8px 0 4px"}, "Other days"),
-      ...others.map(([otherKey, otherList]) =>
-        el("button", {class: "day", onclick: () => { shownDay = otherKey; draw(true); window.scrollTo(0, 0); }},
-           el("span", {}, dayTitle(otherKey)),
-           el("span", {}, plural(totalReps(otherList), "rep") + " · " + plural(otherList.length, "set"))))));
+      el("div", {class: "muted", style: "margin: 8px 0 4px"}, "Other workouts"),
+      ...workouts.map((other, index) => index === shown ? "" :
+        el("button", {class: "day", onclick: () => { shown = index; draw(true); window.scrollTo(0, 0); }},
+           el("span", {}, workoutTitle(other)),
+           el("span", {}, plural(other.reps, "rep") + " · " + plural(other.sets, "set"))))));
   }
   view.replaceChildren(...nodes);
 }
 
 function paceCard(set) {
-  // Seconds from one rep to the next. Needs at least three reps to say anything.
-  const times = set.rep_times || [];
-  const gaps = times.slice(1).map((t, i) => t - times[i]);
-  if (gaps.length < 2) return null;
+  // Seconds from one rep to the next. The server sends the gaps; fewer than two say nothing.
+  const gaps = set.gaps || [];
+  if (gaps.length < 2 || set.slowdown_pct === null) return null;
   const fastest = Math.min(...gaps), slowest = Math.max(...gaps);
   const bars = gaps.map(gap => {
-    const ratio = gap / fastest;
-    const color = ratio >= 1.3 ? "var(--effort)" : ratio >= 1.15 ? "var(--wait)" : "var(--good)";
-    return el("div", {class: "bar", style: "height:" + Math.round(100 * gap / slowest) + "%;background:" + color,
-                      title: gap.toFixed(1) + " s"});
+    const ratio = gap / set.usual_s;                    // against the set's usual pace, as the server judges it
+    const color = ratio >= 1.25 ? "var(--effort)" : ratio >= 1.1 ? "var(--wait)" : "var(--good)";
+    return el("div", {class: "bar", style: "height:" + Math.round(100 * gap / slowest) + "%;background:" + color});
   });
-  const slowed = Math.round((gaps[gaps.length - 1] / fastest - 1) * 100);
-  const sentence = slowed >= 10
-    ? el("div", {class: "note effort"}, "The last rep took " + slowed + "% longer than your fastest.")
+  const sentence = set.slowdown_pct >= 10
+    ? el("div", {class: "note effort"}, "The last rep took " + set.slowdown_pct + "% longer than your usual pace.")
     : el("div", {class: "note good"}, "Steady pace all the way through.");
   return el("section", {class: "card"},
     el("div", {class: "muted"}, "Seconds from one rep to the next"),
@@ -220,20 +233,24 @@ function paceCard(set) {
     sentence);
 }
 
-function drawSet(setId) {
-  const set = sets.find(s => s.set_id === setId);
-  if (!set) { location.hash = ""; return; }
-  const note = el("div", {class: "note", id: "recount-note", "aria-live": "polite"},
-                  "Wrong exercise? Change it and the reps are counted again.");
-  const select = el("select", {id: "exercise", "aria-label": "Exercise", onchange: async () => {
+function labelOf(name) {
+  const match = exercises.find(e => e.name === name);
+  return match ? match.label : (name || "No exercise picked");
+}
+
+function drawSet() {
+  const set = openSet;
+  if (!set) { view.replaceChildren(el("div", {class: "muted"}, "Loading…")); return; }
+  const note = el("div", {class: "note", "aria-live": "polite"}, "Wrong exercise? Change it and the reps are counted again.");
+  const select = el("select", {id: "exercise", onchange: async () => {
     note.className = "note"; note.textContent = "Counting again…";
     try {
       const response = await fetch("/sets/" + set.set_id + "/exercise", {
         method: "PUT", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({exercise: select.value})});
       if (!response.ok) throw new Error(response.status);
-      Object.assign(set, await response.json());
-      lastJson = "";
+      openSet = await response.json();
+      await refresh();
       draw(true);
     } catch (error) {
       note.className = "note effort"; note.textContent = "Couldn't change it. Check the connection and try again.";
@@ -244,8 +261,9 @@ function drawSet(setId) {
   for (const e of exercises) select.append(el("option", {value: e.name}, e.label));
   select.value = set.exercise || "";
 
-  const seconds = (set.duration_ms / 1000).toFixed(1);
   const pace = paceCard(set);
+  const when = set.started_at ? "started " + ago(new Date(set.started_at * 1000))
+                              : "synced " + ago(new Date(set.received_at.replace(" ", "T") + "Z"));
   view.replaceChildren(
     el("button", {class: "link", onclick: () => { location.hash = ""; }}, "‹ Back"),
     el("div", {},
@@ -256,33 +274,93 @@ function drawSet(setId) {
     el("section", {class: "card"},
       el("div", {class: "row"}, el("label", {for: "exercise"}, "Exercise"), select),
       note),
-    el("div", {class: "note"}, seconds + " s long · synced " + ago(receivedAt(set)) + " · set " + set.set_id.slice(0, 5)));
+    el("div", {class: "note"}, (set.duration_ms / 1000).toFixed(1) + " s long · " + when + " · set " + set.set_id.slice(0, 5)));
+}
+
+function buddy(status) {
+  // The same face as on the watch: calm when all is well, one eye squinting when something needs a look.
+  const color = {ok: "var(--good)", warn: "var(--wait)", fail: "var(--effort)"}[status];
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 64 44"); svg.setAttribute("width", "64"); svg.setAttribute("height", "44");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = (tag, attrs) => {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    svg.append(node);
+  };
+  shape("rect", {x: 6, y: 4, width: 20, height: status === "ok" ? 22 : 26, rx: 8, fill: color});
+  shape("rect", {x: 38, y: status === "ok" ? 4 : 10, width: 20, height: status === "ok" ? 22 : 14, rx: 7, fill: color});
+  if (status === "ok") shape("path", {d: "M22 33 Q32 41 42 33", stroke: color, "stroke-width": 3, fill: "none", "stroke-linecap": "round"});
+  return svg;
+}
+
+function drawWatch() {
+  if (!health) { view.replaceChildren(el("div", {class: "muted"}, "Loading…")); return; }
+  if (!health.seen) {
+    view.replaceChildren(el("div", {class: "empty"},
+      buddy("warn"),
+      el("h2", {}, "No word from the watch yet"),
+      el("div", {class: "muted"}, "Hold B on the watch near your Wi-Fi. It reports how it is doing after every sync.")));
+    return;
+  }
+  const marks = {ok: "✓", warn: "!", fail: "×"};
+  const words = {ok: "Passed", warn: "Check", fail: "Failed"};
+  view.replaceChildren(
+    el("section", {class: "card", style: "flex-direction:row;align-items:center;gap:14px"},
+      buddy(health.status),
+      el("div", {},
+        el("div", {style: "font-weight:600;font-size:17px"}, health.summary),
+        el("div", {class: "muted"}, health.checks.filter(c => c.status === "ok").length + " of " + health.checks.length + " checks passed"))),
+    el("section", {class: "card"}, ...health.checks.map(check =>
+      el("div", {class: "check"},
+        el("span", {class: "mark " + check.status, role: "img", "aria-label": words[check.status]}, marks[check.status]),
+        el("div", {class: "body"},
+          el("div", {}, check.label),
+          ...(check.help ? [el("div", {class: "note" + (check.status === "ok" ? "" : " effort")}, check.help)] : [])),
+        el("div", {class: "value"}, check.value)))),
+    el("div", {class: "note"}, "The watch sends these numbers after every sync. The limits are set on the server."));
 }
 
 function draw(force) {
-  const json = JSON.stringify(sets) + location.hash + shownDay + serverDown;
   drawStatus();
-  if (!force && json === lastJson) return;      // nothing new: leave the screen alone
-  lastJson = json;
-  const match = location.hash.match(/^#set=(.+)$/);
-  if (match) drawSet(match[1]); else drawToday();
+  const where = route();
+  const fingerprint = JSON.stringify([workouts, health, openSet, where, shown, serverDown]);
+  if (!force && fingerprint === lastDrawn) return;      // nothing new: leave the screen alone
+  lastDrawn = fingerprint;
+  if (where.screen === "watch") drawWatch();
+  else if (where.screen === "set") drawSet();
+  else drawToday();
+}
+
+async function getJson(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(path + " " + response.status);
+  return response.json();
 }
 
 async function refresh() {
   try {
-    const [setsResponse, exercisesResponse] = await Promise.all([
-      fetch("/sets"), exercises.length ? null : fetch("/exercises")]);
-    if (!setsResponse.ok) throw new Error(setsResponse.status);
-    sets = await setsResponse.json();
-    if (exercisesResponse && exercisesResponse.ok) exercises = await exercisesResponse.json();
+    const where = route();
+    const [newWorkouts, newHealth, newSet, newExercises] = await Promise.all([
+      getJson("/workouts"), getJson("/watch/health"),
+      where.screen === "set" ? getJson("/sets/" + encodeURIComponent(where.id)).catch(() => null) : null,
+      exercises.length ? exercises : getJson("/exercises")]);
+    workouts = newWorkouts; health = newHealth; exercises = newExercises;
+    if (where.screen === "set") {
+      if (newSet === null) { location.hash = ""; return; }      // a set that doesn't exist: back to Today
+      openSet = newSet;
+    }
     serverDown = false;
   } catch (error) {
-    serverDown = true;                          // keep showing what we have
+    serverDown = true;                                  // keep showing what we have
   }
   draw(false);
 }
 
-window.addEventListener("hashchange", () => { draw(true); window.scrollTo(0, 0); });
+document.getElementById("nav-today").addEventListener("click", () => { shown = 0; location.hash = ""; });
+document.getElementById("nav-watch").addEventListener("click", () => { location.hash = "watch"; });
+statusEl.addEventListener("click", () => { location.hash = "watch"; });
+window.addEventListener("hashchange", () => { openSet = null; draw(true); refresh(); window.scrollTo(0, 0); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 setInterval(() => { if (!document.hidden && document.activeElement.tagName !== "SELECT") refresh(); }, REFRESH_MS);
 refresh();

@@ -283,7 +283,7 @@ def test_archiving_moves_the_files_and_removes_the_row_and_restoring_undoes_it(f
 def test_one_set_comes_with_its_pace():
     upload(headers=CURL)
     body = client.get(f"/sets/{SET_ID}").json()
-    assert body["gaps"] == [2.62, 2.41, 2.34, 2.73, 2.81] and body["slowdown_pct"] == 20
+    assert body["gaps"] == [2.62, 2.41, 2.34, 2.73, 2.81] and body["usual_s"] == 2.62 and body["slowdown_pct"] == 7
 
 
 def test_workouts_group_the_uploaded_sets_under_their_exercise():

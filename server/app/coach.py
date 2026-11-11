@@ -21,14 +21,17 @@ SUGGESTIONS = {
 def pace(rep_times):
     """Seconds from each rep to the next, and how much the last one slowed.
 
-    slowdown_pct compares the last gap with the fastest gap of the set. It is
-    None with fewer than three reps: one gap alone says nothing. A gap includes
-    any pause between reps, so a rest before the last rep reads as slowing.
+    slowdown_pct compares the last gap with the usual gap of the set: the
+    middle one when they are sorted. The middle, not the fastest, because one
+    quick rep (often the first) would make every steady set look like it slowed.
+    It is None with fewer than three reps: one gap alone says nothing. A gap
+    includes any pause between reps, so a rest before the last rep reads as slowing.
     """
     gaps = [round(b - a, 2) for a, b in zip(rep_times, rep_times[1:])]
     if len(gaps) < 2 or min(gaps) <= 0:
-        return {"gaps": gaps, "fastest_s": None, "slowdown_pct": None}
-    return {"gaps": gaps, "fastest_s": min(gaps), "slowdown_pct": round((gaps[-1] / min(gaps) - 1) * 100)}
+        return {"gaps": gaps, "usual_s": None, "slowdown_pct": None}
+    usual = sorted(gaps)[(len(gaps) - 1) // 2]
+    return {"gaps": gaps, "usual_s": usual, "slowdown_pct": max(0, round((gaps[-1] / usual - 1) * 100))}
 
 
 def suggest(sets):

@@ -1,11 +1,13 @@
 import json
 import os
 import re
+import secrets
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import Depends, FastAPI, Request, Header, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from app import coach, db, health
@@ -13,7 +15,9 @@ from app.analysis import count_reps, load_set
 
 app = FastAPI(title="gym-buddy")
 
-TOKEN = os.environ.get("GYM_BUDDY_TOKEN", "dev-token")
+# Two secrets, for two kinds of caller. Both come from the environment, never from the code.
+TOKEN = os.environ.get("GYM_BUDDY_TOKEN", "dev-token")      # the watch sends this with every upload
+PASSWORD = os.environ.get("GYM_BUDDY_PASSWORD", "")         # the dashboard asks for this; empty = no password (home network only)
 SET_DIR = Path(os.environ.get("GYM_BUDDY_DATA", "data/sets"))
 SET_ID = re.compile(r"^\d{5}-[0-9a-f]{6}$")     # e.g. 00004-a956cd, nothing else
 BYTES_PER_READING = 12                          # 6 int16s: accel xyz, gyro xyz
@@ -28,6 +32,20 @@ EXERCISES = [
     ("pullup", "Pull-up"),
     ("pushup", "Push-up"),
 ]
+
+
+def same(given, expected):
+    # Compares secrets in a way that takes the same time whether or not they match,
+    # so the time a wrong guess takes tells an attacker nothing.
+    return secrets.compare_digest((given or "").encode(), expected.encode())
+
+
+def viewer(credentials: HTTPBasicCredentials | None = Depends(HTTPBasic(auto_error=False))):
+    # Guards everything the dashboard uses. The browser shows its own sign-in
+    # box when it gets the 401 below; any user name is accepted.
+    if PASSWORD and not (credentials and same(credentials.password, PASSWORD)):
+        raise HTTPException(status_code=401, detail="password needed",
+                            headers={"WWW-Authenticate": 'Basic realm="Gym Buddy"'})
 
 
 def save_atomically(path, data):
@@ -79,7 +97,7 @@ async def upload_sets(
     x_set_meta: str | None = Header(default=None),
 ):
     # Who is calling? Missing and wrong are both 401
-    if x_token != TOKEN:
+    if not same(x_token, TOKEN):
         raise HTTPException(status_code=401, detail="missing or wrong token")
 
     # What do they say they are sending?
@@ -117,28 +135,28 @@ async def upload_sets(
     return receipt(set_id)
 
 
-@app.get("/sets")
+@app.get("/sets", dependencies=[Depends(viewer)])
 def list_sets():
     # Every set, newest first.
     return db.list_sets()
 
 
-@app.get("/sets/{set_id}")
+@app.get("/sets/{set_id}", dependencies=[Depends(viewer)])
 def get_set(set_id: str):
     # 404 for an unknown set, and for anything that isn't shaped like a set ID.
     row = db.get_set(set_id) if SET_ID.match(set_id) else None
     if row is None:
         raise HTTPException(status_code=404, detail="no such set")
-    return {**row, **coach.pace(row["rep_times"])}     # plus gaps, fastest_s and slowdown_pct
+    return {**row, **coach.pace(row["rep_times"])}     # plus gaps, usual_s and slowdown_pct
 
 
-@app.get("/workouts")
+@app.get("/workouts", dependencies=[Depends(viewer)])
 def list_workouts():
     # Sets grouped into workouts, newest first, each exercise with its sets and a suggestion.
     return coach.workouts(db.list_sets(), dict(EXERCISES))
 
 
-@app.get("/exercises")
+@app.get("/exercises", dependencies=[Depends(viewer)])
 def list_exercises():
     # The dashboard's dropdown is filled from this, so the list lives in one place.
     return [{"name": name, "label": label} for name, label in EXERCISES]
@@ -148,7 +166,7 @@ class ExerciseChange(BaseModel):
     exercise: str
 
 
-@app.put("/sets/{set_id}/exercise")
+@app.put("/sets/{set_id}/exercise", dependencies=[Depends(viewer)])
 def change_exercise(set_id: str, change: ExerciseChange):
     # The watch had the wrong exercise picked: correct it and recount from the raw file.
     if not SET_ID.match(set_id) or db.get_set(set_id) is None:
@@ -160,7 +178,7 @@ def change_exercise(set_id: str, change: ExerciseChange):
     return get_set(set_id)
 
 
-@app.get("/", include_in_schema=False)
+@app.get("/", include_in_schema=False, dependencies=[Depends(viewer)])
 def dashboard():
     return FileResponse(PAGES / "index.html")
 
@@ -168,7 +186,7 @@ def dashboard():
 @app.post("/watch/health", status_code=201)
 async def report_health(request: Request, x_token: str | None = Header(default=None)):
     # The watch's own numbers (sensor, Wi-Fi, clock, battery, storage), sent after each sync.
-    if x_token != TOKEN:
+    if not same(x_token, TOKEN):
         raise HTTPException(status_code=401, detail="missing or wrong token")
     try:
         report = json.loads(await request.body())
@@ -181,7 +199,7 @@ async def report_health(request: Request, x_token: str | None = Header(default=N
     return {"stored": True, "server_time": int(now)}
 
 
-@app.get("/watch/health")
+@app.get("/watch/health", dependencies=[Depends(viewer)])
 def watch_health():
     # The latest report, judged against the limits in health.py.
     latest = db.latest_health()
