@@ -20,7 +20,8 @@
 #   - After a set the screen dims but stays on for WORKOUT_MS, so ONE press of A
 #     starts the next set. (This RESTING state costs more battery than DARK.)
 #   - A beep confirms start (one) and stop (two), so you needn't look.
-#   - Sets waiting to sync show as a count; on charge they sync by themselves.
+#   - Sets waiting to sync show as a count. They sync by themselves on charge,
+#     and once when a workout ends (the rest window after the last set runs out).
 #   - After a sync the rep counts come back from the server and are shown.
 #
 # Safety:
@@ -66,6 +67,7 @@ SOUND = True                # beep on start and stop
 AUTO_SYNC = True            # sync by itself while charging, when sets are waiting
 AUTO_SYNC_IDLE_MS = 10000   # ...after this long with no presses
 AUTO_SYNC_EVERY_MS = 5 * 60000  # ...and not more often than this
+SYNC_AFTER_WORKOUT = True   # when the rest window after the last set runs out, try one sync before the screen goes dark
 USB_MV = 4000               # the USB power line reads above this (millivolts) when plugged in
 # (name saved with the set and sent to the server, label on the screen), in the order B cycles them.
 # Labels are at most 9 characters: that is what fits beside the face.
@@ -385,8 +387,10 @@ def crashed(e):
     machine.reset()
 
 
-def run_sync():
+def run_sync(quiet=False):
     # Upload the saved sets and show the result. Takes seconds; never called during a set.
+    # quiet: nobody asked for this sync, so a failure is not an OOPS. The ready
+    # face comes back with the waiting count, and hold B still works later.
     global waiting
     undim()
     face("sync", "SYNC")
@@ -398,13 +402,18 @@ def run_sync():
     except Exception as e:
         radios_off()
         waiting = count_waiting()
-        face("problem", "OOPS", type(e).__name__.upper())
+        if quiet:
+            show_ready()
+        else:
+            face("problem", "OOPS", type(e).__name__.upper())
         return
     radios_off()
     measure_flash()                         # sets were deleted; a sync takes seconds anyway
     waiting = left
     if left == 0 and not problem:
         face("saved", "SYNCED", reps_hint(reps, sent) if sent else "NOTHING NEW")
+    elif quiet:
+        show_ready()                        # no Wi-Fi at the gym is normal, not a problem
     else:
         face("problem", "OOPS", "%s  %d LEFT" % ((problem or "").upper(), left))
 
@@ -541,6 +550,15 @@ try:
                 draw_status(face_mood)
                 last_battery = now
             if idle >= SCREEN_OFF_MS and rest_left <= 0:
+                if (SYNC_AFTER_WORKOUT and waiting and not stay_awake
+                        and rest_until is not None and time.ticks_diff(now, rest_until) >= 0):
+                    # The workout is over: nobody has pressed anything for the whole rest window.
+                    # One try, whether or not it works; after that it is hold B, or the charger.
+                    rest_until = None
+                    run_sync(quiet=True)
+                    last_activity = time.ticks_ms()
+                    last_battery = last_activity
+                    continue
                 screen_sleep()
                 screen_on = False
                 dimmed = False

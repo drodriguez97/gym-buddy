@@ -495,7 +495,8 @@ def test_a_tap_on_b_while_resting_brightens_and_picks_the_next_exercise():
 
 
 def test_five_minutes_after_the_last_set_it_gets_sleepy_then_goes_dark():
-    r = run(presses=[press(1), press(6)], run_for_s=330, saved_pin=11)
+    # With the end-of-workout sync off, so this is only about the rest window.
+    r = run(presses=[press(1), press(6)], run_for_s=330, saved_pin=11, edit=set_one_edit("SYNC_AFTER_WORKOUT", False))
     stop = r.times("recording stop")[0]
     off = r.times("backlight off")
     sleepy = [t for t, e in r.events if e == "screen: Z Z Z"]
@@ -565,9 +566,9 @@ def test_a_failed_auto_sync_waits_five_minutes_before_trying_again():
 
 
 def test_auto_sync_wakes_a_dark_screen_to_show_what_it_is_doing():
-    r = run(presses=[press(1), press(4)], run_for_s=400, saved_pin=11, charging=False,
+    r = run(presses=[press(1), press(4)], run_for_s=200, saved_pin=11, charging=False,
             edit=set_one_edit("AUTO_SYNC_IDLE_MS", 1000))
-    assert not r.has("sync")                # on battery: never
+    assert not r.has("sync")                # on battery, mid-workout: never
 
 
 def test_auto_sync_never_interrupts_a_set():
@@ -621,3 +622,61 @@ def test_a_watch_that_cannot_read_its_sensor_still_syncs():
 def test_an_auto_sync_on_charge_also_reports_health():
     r = run(run_for_s=30, saved_pin=11, charging=True, waiting=2)
     assert r.has("sync") and r.health["accel_g"] == 1.0
+
+
+# ---- syncing by itself when the workout ends
+
+def test_when_the_rest_window_runs_out_it_syncs_once_by_itself():
+    # A set from 1 s to 6 s, then nothing. The rest window is 5 minutes.
+    r = run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11)
+    sync = r.times("sync")
+    assert len(sync) == 1 and 306 <= sync[0] < 312
+    assert "SYNCED" in screens(r, sync[0], sync[0] + 6)
+
+
+def test_after_that_sync_the_screen_goes_dark_as_usual():
+    r = run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11)
+    off = [t for t in r.times("backlight off") if t > r.times("sync")[0]]
+    assert off and 19 <= off[0] - r.times("sync")[0] < 27       # the sync's 4 s, then the usual 20 s
+
+
+def test_no_wifi_at_the_gym_is_not_an_oops_and_it_does_not_keep_trying():
+    r = run(presses=[press(1), press(6)], run_for_s=1000, saved_pin=11, sync_result=(0, 1, "no wifi"))
+    assert len(r.times("sync")) == 1
+    assert "OOPS" not in screens(r, 300, 1000)
+
+
+def test_a_sync_that_crashes_by_itself_is_quiet_too():
+    r = run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11, sync_result=OSError("no wifi"))
+    assert len(r.times("sync")) == 1 and "OOPS" not in screens(r, 300, 400)
+
+
+def test_holding_b_still_shows_an_oops_when_it_fails():
+    r = run(b_presses=[press(5, hold=HOLD)], run_for_s=15, saved_pin=11, sync_result=(0, 2, "no wifi"))
+    assert "OOPS" in screens(r, 5, 15)
+
+
+def test_another_set_restarts_the_wait():
+    # Sets end at 6 s and at 206 s. The sync waits for 5 quiet minutes after the last one.
+    r = run(presses=[press(1), press(6), press(200), press(206)], run_for_s=600, saved_pin=11)
+    sync = r.times("sync")
+    assert len(sync) == 1 and 506 <= sync[0] < 512
+
+
+def test_it_never_syncs_by_itself_during_a_set():
+    r = run(presses=[press(1), press(6), press(300)], run_for_s=400, saved_pin=11)
+    assert not r.has("sync")                # a set is being recorded when the window would have run out
+
+
+def test_nothing_waiting_means_no_sync_when_the_workout_ends():
+    # The wearer already held B after the set.
+    r = run(presses=[press(1), press(6)], b_presses=[press(10, hold=HOLD)], run_for_s=400, saved_pin=11)
+    assert len(r.times("sync")) == 1 and r.times("sync")[0] < 13
+
+
+def test_no_sync_by_itself_without_a_set_or_in_dev_mode_or_switched_off():
+    assert not run(run_for_s=400, saved_pin=11, waiting=2).has("sync")
+    assert not run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11, b_held=True).has("sync")
+    assert not run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11,
+                   edit=set_one_edit("SYNC_AFTER_WORKOUT", False)).has("sync")
+

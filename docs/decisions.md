@@ -182,4 +182,20 @@ exercise in the dashboard) predate this log and are summarised first.
   server app; the deploy test starts the server as a real process, fills it,
   restarts it and checks the data. Each important test was checked by breaking
   the code on purpose and seeing the test fail.
-
+- **The wearer has the last word on the count.** A corrected count is stored
+  next to the counter's, never over it. The page shows the wearer's; the
+  difference between the two is a free labeled example of where the counter
+  is wrong.
+- **Removing a set marks it; nothing is deleted.** Sets recorded after the
+  first sync exist only on the server, so a slip of the thumb must not destroy
+  one. Because it can be undone, the page asks no "are you sure?".
+- **A sign-in page instead of the browser's password box.** The box worked but
+  was the one screen nobody designed, and it can't be signed out of. The
+  session cookie holds an HMAC of the password, so there is no session table
+  to store and changing the password signs everyone out. Scripts still send
+  the password as HTTP Basic, which keeps `check_server.py` simple.
+- **The watch syncs by itself once, when the workout ends.** Not after every
+  set: joining Wi-Fi takes seconds, costs battery, and would block the button
+  between sets. The end of the rest window (five quiet minutes) is the one
+  moment nobody is waiting on the watch. One try only, and a failure is
+  silent: no Wi-Fi at the gym is normal, and hold B still works at home.

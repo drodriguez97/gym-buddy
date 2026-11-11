@@ -82,8 +82,9 @@ docker compose ps
 ```
 
 `docker compose ps` should show `app` as **healthy** after about half a minute,
-and `caddy` as running. Open `https://<name>` on your phone: the browser asks
-for a password (leave the user name empty), then shows "No sets yet".
+and `caddy` as running. Open `https://<name>` on your phone: the sign-in page
+asks for the password, then the dashboard shows "No sets yet". You stay signed
+in for 30 days.
 
 ## 5. Check it from the laptop (2 min)
 

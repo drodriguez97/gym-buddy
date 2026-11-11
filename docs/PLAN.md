@@ -62,6 +62,12 @@ Raw file per set: 100 readings a second, 12 bytes each (accel x y z in mg, gyro 
 | Suggestion | One sentence per exercise, from the rules below | Built 11-10 |
 | Workouts | Sets less than 30 minutes apart, by the start time the watch saves | Built 11-10; start times not yet seen from the real watch |
 | Watch health | Pass / check / fail for seven checks (see M2) | Built 11-10; not yet seen from the real watch |
+| New set | A set that arrives while the page is open is marked "New" and announced | Built 11-10 |
+| Correct a count | Plus and minus on the set screen; the counter's number is kept beside the wearer's | Built 11-10 |
+| Weight | Typed per set, offered again for the next set; suggestions then name a number | Built 11-10 |
+| Remove a set | Off the dashboard, nothing deleted, with Undo | Built 11-10 |
+| Progress | Total reps per workout for each exercise, and the change from last time | Built 11-10 |
+| Sign in | A designed sign-in page and a 30-day session, instead of the browser's password box | Built 11-10 |
 
 All of it is tested on the laptop with real recorded sets. "Not yet seen from
 the real watch" means the 11-10 watch code has to be flashed first.
@@ -131,6 +137,9 @@ Still unknown:
 - One upload token for all watches, one password for the dashboard, no accounts.
 - Loop hiccups of 10 to 20 ms during a set (about 14 late readings a second). Checked: the timing error is at most about 40 ms and no readings are missing.
 - Light and deep sleep are tested on the laptop, not yet confirmed on the watch.
+- The sync at the end of a workout blocks the button for its few seconds, and needs the rest window (RESTING) switched on.
+- A corrected count changes the number, not the pace chart: the chart still shows the reps the counter found.
+- Weight is in pounds only.
 - The 250 mAh battery is small.
 
 ## Who does what
@@ -158,10 +167,12 @@ doesn't know the weight.
 
 ## After the demo
 
-- **Weight per set.** A field on each set in the dashboard, pre-filled with the
-  last weight used for that exercise. Makes suggestions specific ("try 27.5 lb").
-  Not on the watch, and no workout planning on the phone: the watch's job is to
-  measure what actually happened.
+- Weight per set was built on 11-10 (see the table above). Still not on the
+  watch, and no workout planning on the phone: the watch's job is to measure
+  what actually happened.
+- **A count on the wrist during the set.** Not built, on purpose: counting is
+  on the server. The watch shows the count after a sync, and since 11-10 it
+  syncs by itself when a workout ends, so the wait is shorter.
 - HTTPS from the watch, and a token per device.
 - Per-exercise profiles, automatic exercise guess with confirmation, Postgres
   and object storage, background analysis, more wearers.

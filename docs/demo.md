@@ -12,7 +12,7 @@ explain every part of it.
 - [ ] One full run on the hotspot, away from home Wi-Fi: 5 curls → hold B → phone shows 5.
 - [ ] Screenshots of Today, one set, and the Watch tab saved on the phone (the fallback if there is no signal in the room).
 - [ ] A screen recording of the full run saved on the phone.
-- [ ] Dashboard open in the phone's browser, password already entered.
+- [ ] Dashboard open in the phone's browser, already signed in.
 
 ## In the room, before you start
 
@@ -31,9 +31,11 @@ If step 2 fails, you know before anyone is watching. Go to "If something breaks"
 | Point at "SAVED" | "The set is on the watch's flash now. If the battery died here, I'd lose nothing." |
 | Hold B | "Now it joins Wi-Fi and uploads. It only deletes its copy when the server sends back a receipt for that exact set. No receipt, no delete." |
 | Point at "REPS 5" on the watch | "The server counted the reps and put the count in the receipt." |
-| Show the phone, Today | "Same number here. The watch never counted anything: it's a recorder. All the thinking is on the server, so I can improve the counting without touching the watch." |
+| Show the phone, Today: the new set pulses and is marked "New" | "Same number here. The watch never counted anything: it's a recorder. All the thinking is on the server, so I can improve the counting without touching the watch." |
 | Tap the set | "Time between each rep. The last rep took longer than my usual pace: that's fatigue, measured." |
 | Back; point at the suggestion | "Across the sets of an exercise it turns that into one plain sentence." |
+| Set screen: plus, minus, weight | "If the counter is wrong I correct it, and it keeps both numbers: mine, and what it found. That difference is training data. With a weight, the suggestion names a number." |
+| Progress tab | "And across workouts: total reps per exercise, and the change from last time." |
 | Watch tab | "The watch also reports its own health on every sync: sensor, Wi-Fi, clock, battery, storage. The server judges each against a limit." |
 
 ## How it fits together (draw this if asked)
@@ -99,8 +101,9 @@ screen, buttons, sensor and clock, with time under the test's control. The
 real watch code runs against it, and the sync tests upload to the real server
 code. About 180 watch tests and 160 server tests.
 
-**What would you do next?** Weight per set so suggestions can say "try 27.5 lb";
-HTTPS and a token per device; automatic exercise guess with confirmation.
+**What would you do next?** HTTPS from the watch and a token per device; use
+the corrected counts to improve the counter; automatic exercise guess with
+confirmation; a count on the wrist during the set.
 
 ## If something breaks
 
