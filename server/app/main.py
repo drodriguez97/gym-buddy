@@ -1,13 +1,14 @@
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app import coach, db
+from app import coach, db, health
 from app.analysis import count_reps, load_set
 
 app = FastAPI(title="gym-buddy")
@@ -67,7 +68,7 @@ def receipt(set_id):
 
 
 @app.get("/health")
-def health():
+def ping():
     return {"status": "ok"}
 
 
@@ -162,3 +163,32 @@ def change_exercise(set_id: str, change: ExerciseChange):
 @app.get("/", include_in_schema=False)
 def dashboard():
     return FileResponse(PAGES / "index.html")
+
+
+@app.post("/watch/health", status_code=201)
+async def report_health(request: Request, x_token: str | None = Header(default=None)):
+    # The watch's own numbers (sensor, Wi-Fi, clock, battery, storage), sent after each sync.
+    if x_token != TOKEN:
+        raise HTTPException(status_code=401, detail="missing or wrong token")
+    try:
+        report = json.loads(await request.body())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="the report is not valid JSON")
+    if not isinstance(report, dict):
+        raise HTTPException(status_code=422, detail="the report must be a JSON object")
+    now = time.time()
+    db.add_health(report, now)
+    return {"stored": True, "server_time": int(now)}
+
+
+@app.get("/watch/health")
+def watch_health():
+    # The latest report, judged against the limits in health.py.
+    latest = db.latest_health()
+    if latest is None:
+        return {"seen": False, "status": "warn", "summary": "No report from the watch yet", "checks": []}
+    report, received_at = latest
+    checks = health.judge(report, received_at)
+    status, line = health.summary(checks)
+    return {"seen": True, "status": status, "summary": line, "checks": checks,
+            "received_at": coach.iso(received_at)}

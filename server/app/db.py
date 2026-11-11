@@ -27,6 +27,14 @@ CREATE TABLE IF NOT EXISTS sets (
 """
 
 
+HEALTH_SCHEMA = """
+CREATE TABLE IF NOT EXISTS health (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    received_at INTEGER NOT NULL,           -- unix seconds (UTC), by the server's clock
+    report      TEXT NOT NULL               -- JSON, exactly what the watch sent
+)
+"""
+
 # Columns added after the first version. A database made before them gets them
 # added on its next open, so an old file keeps working (a tiny migration).
 ADDED_COLUMNS = {
@@ -40,6 +48,7 @@ def connect():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row            # rows read like dicts: row["reps"]
     db.execute(SCHEMA)
+    db.execute(HEALTH_SCHEMA)
     have = {column[1] for column in db.execute("PRAGMA table_info(sets)")}
     for name, kind in ADDED_COLUMNS.items():
         if name not in have:
@@ -96,3 +105,16 @@ def delete_set(set_id):
     # Removes the row only. What happens to the raw files is the caller's decision.
     with closing(connect()) as db, db:
         db.execute("DELETE FROM sets WHERE set_id = ?", (set_id,))
+
+
+def add_health(report, received_at):
+    # Every report is kept: a history of the watch's state costs almost nothing.
+    with closing(connect()) as db, db:
+        db.execute("INSERT INTO health (received_at, report) VALUES (?, ?)", (int(received_at), json.dumps(report)))
+
+
+def latest_health():
+    # (report, received_at) of the newest report, or None if the watch has never sent one.
+    with closing(connect()) as db:
+        row = db.execute("SELECT received_at, report FROM health ORDER BY id DESC LIMIT 1").fetchone()
+    return (json.loads(row["report"]), row["received_at"]) if row else None
