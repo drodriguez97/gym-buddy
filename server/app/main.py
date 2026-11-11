@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -5,8 +7,8 @@ import secrets
 import time
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Request, Header, HTTPException, Response
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
@@ -40,12 +42,32 @@ def same(given, expected):
     return secrets.compare_digest((given or "").encode(), expected.encode())
 
 
-def viewer(credentials: HTTPBasicCredentials | None = Depends(HTTPBasic(auto_error=False))):
-    # Guards everything the dashboard uses. The browser shows its own sign-in
-    # box when it gets the 401 below; any user name is accepted.
-    if PASSWORD and not (credentials and same(credentials.password, PASSWORD)):
-        raise HTTPException(status_code=401, detail="password needed",
-                            headers={"WWW-Authenticate": 'Basic realm="Gym Buddy"'})
+SESSION_COOKIE = "gym_buddy_session"
+SESSION_DAYS = 30
+WRONG_PASSWORD_WAIT_S = 1       # every wrong guess costs this long, which makes guessing thousands impractical
+
+
+def session_value():
+    # What the sign-in cookie holds: a fingerprint of the password, not the
+    # password. It can't be turned back into the password, it can't be made
+    # without knowing the password, and changing the password signs everyone out.
+    return hmac.new(PASSWORD.encode(), b"gym-buddy session v1", hashlib.sha256).hexdigest()
+
+
+def signed_in(request, credentials=None):
+    # Two ways in: the cookie the sign-in page sets (people, in a browser), or
+    # the password sent with the request as HTTP Basic (scripts such as check_server.py).
+    if not PASSWORD:
+        return True
+    if same(request.cookies.get(SESSION_COOKIE), session_value()):
+        return True
+    return bool(credentials and same(credentials.password, PASSWORD))
+
+
+def viewer(request: Request, credentials: HTTPBasicCredentials | None = Depends(HTTPBasic(auto_error=False))):
+    # Guards everything the dashboard uses. The page sends people to /login when it gets this 401.
+    if not signed_in(request, credentials):
+        raise HTTPException(status_code=401, detail="sign in first")
 
 
 def save_atomically(path, data):
@@ -120,7 +142,8 @@ async def upload_sets(
         raise HTTPException(status_code=422,
                             detail=f"expected {count} readings x {BYTES_PER_READING} bytes, got {len(data)} bytes")
 
-    # Already have it? Same receipt, nothing rewritten.
+    # Already have it? Same receipt, nothing rewritten. This also covers a set
+    # the wearer removed from the dashboard: its files are still here.
     path = SET_DIR / f"{set_id}.bin"
     if path.exists():
         return receipt(set_id)
@@ -141,13 +164,77 @@ def list_sets():
     return db.list_sets()
 
 
-@app.get("/sets/{set_id}", dependencies=[Depends(viewer)])
-def get_set(set_id: str):
-    # 404 for an unknown set, and for anything that isn't shaped like a set ID.
+def known(set_id):
+    # The set's row, or 404 for an unknown set and for anything that isn't shaped like a set ID.
     row = db.get_set(set_id) if SET_ID.match(set_id) else None
     if row is None:
         raise HTTPException(status_code=404, detail="no such set")
-    return {**row, **coach.pace(row["rep_times"])}     # plus gaps, usual_s and slowdown_pct
+    return row
+
+
+def last_weight(row):
+    # The weight most recently used for this exercise in another set: the
+    # dashboard offers it, because the next set usually uses the same.
+    others = [r for r in db.list_sets()
+              if r["exercise"] == row["exercise"] and r["weight"] and r["set_id"] != row["set_id"]]
+    return max(others, key=lambda r: (coach.when(r), r["set_id"]))["weight"] if others and row["exercise"] else None
+
+
+@app.get("/sets/{set_id}", dependencies=[Depends(viewer)])
+def get_set(set_id: str):
+    row = known(set_id)
+    # plus gaps, usual_s and slowdown_pct, and the weight to offer
+    return {**row, **coach.pace(row["rep_times"]), "last_weight": last_weight(row)}
+
+
+class RepsChange(BaseModel):
+    reps: int | None            # None: go back to the counter's number
+
+
+@app.put("/sets/{set_id}/reps", dependencies=[Depends(viewer)])
+def correct_reps(set_id: str, change: RepsChange):
+    # The wearer knows how many they did. Their number is shown; the counter's
+    # is kept beside it, and each disagreement is a labeled example for improving the counter.
+    known(set_id)
+    if change.reps is not None and not 0 <= change.reps <= 200:
+        raise HTTPException(status_code=422, detail="reps must be between 0 and 200")
+    db.edit_set(set_id, "reps_fixed", change.reps)
+    return get_set(set_id)
+
+
+class WeightChange(BaseModel):
+    weight: float | None        # pounds; None clears it
+
+
+@app.put("/sets/{set_id}/weight", dependencies=[Depends(viewer)])
+def set_weight(set_id: str, change: WeightChange):
+    known(set_id)
+    if change.weight is not None and not 0 < change.weight <= 1000:
+        raise HTTPException(status_code=422, detail="weight must be above 0 and at most 1000 lb")
+    db.edit_set(set_id, "weight", change.weight)
+    return get_set(set_id)
+
+
+@app.delete("/sets/{set_id}", dependencies=[Depends(viewer)])
+def remove_set(set_id: str):
+    # Takes a set off the dashboard (a recording started by accident, say).
+    # Nothing is deleted: the row is marked and the raw files stay, so it can be put back.
+    known(set_id)
+    db.edit_set(set_id, "removed_at", int(time.time()))
+    return get_set(set_id)
+
+
+@app.post("/sets/{set_id}/restore", dependencies=[Depends(viewer)])
+def restore_set(set_id: str):
+    known(set_id)
+    db.edit_set(set_id, "removed_at", None)
+    return get_set(set_id)
+
+
+@app.get("/progress", dependencies=[Depends(viewer)])
+def list_progress():
+    # Each exercise across workouts, oldest first.
+    return coach.progress(db.list_sets(), dict(EXERCISES))
 
 
 @app.get("/workouts", dependencies=[Depends(viewer)])
@@ -169,8 +256,7 @@ class ExerciseChange(BaseModel):
 @app.put("/sets/{set_id}/exercise", dependencies=[Depends(viewer)])
 def change_exercise(set_id: str, change: ExerciseChange):
     # The watch had the wrong exercise picked: correct it and recount from the raw file.
-    if not SET_ID.match(set_id) or db.get_set(set_id) is None:
-        raise HTTPException(status_code=404, detail="no such set")
+    known(set_id)
     if change.exercise not in [name for name, _ in EXERCISES]:
         raise HTTPException(status_code=422, detail="unknown exercise")
     reps, rep_times = analyze(set_id, change.exercise)
@@ -178,9 +264,43 @@ def change_exercise(set_id: str, change: ExerciseChange):
     return get_set(set_id)
 
 
-@app.get("/", include_in_schema=False, dependencies=[Depends(viewer)])
-def dashboard():
+@app.get("/", include_in_schema=False)
+def dashboard(request: Request, credentials: HTTPBasicCredentials | None = Depends(HTTPBasic(auto_error=False))):
+    # A person who isn't signed in is sent to the sign-in page, not shown an error.
+    if not signed_in(request, credentials):
+        return RedirectResponse("/login", status_code=303)
     return FileResponse(PAGES / "index.html")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page(request: Request):
+    if signed_in(request):
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(PAGES / "login.html")
+
+
+class SignIn(BaseModel):
+    password: str
+
+
+@app.post("/login")
+def sign_in(attempt: SignIn, request: Request, response: Response):
+    if not same(attempt.password, PASSWORD):
+        time.sleep(WRONG_PASSWORD_WAIT_S)
+        raise HTTPException(status_code=401, detail="wrong password")
+    # HttpOnly: scripts on the page can't read the cookie. SameSite=Lax: other
+    # sites can't make the browser send it with a change. Secure: only over
+    # HTTPS, when that is how the page was reached (Caddy says so in a header).
+    https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    response.set_cookie(SESSION_COOKIE, session_value(), max_age=SESSION_DAYS * 24 * 3600,
+                        httponly=True, samesite="lax", secure=https)
+    return {"signed_in": True}
+
+
+@app.post("/logout")
+def sign_out(response: Response):
+    response.delete_cookie(SESSION_COOKIE)
+    return {"signed_in": False}
 
 
 @app.post("/watch/health", status_code=201)

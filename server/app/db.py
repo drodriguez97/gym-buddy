@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS health (
 # added on its next open, so an old file keeps working (a tiny migration).
 ADDED_COLUMNS = {
     "started_at": "INTEGER",                # unix seconds (UTC) when the watch started the set; empty if it didn't know the time
+    "reps_fixed": "INTEGER",                # the wearer's own count, when they corrected the counter; empty otherwise
+    "weight": "REAL",                       # pounds, typed in on the dashboard; empty if not given
+    "removed_at": "INTEGER",                # unix seconds when the set was taken off the dashboard; empty = shown
 }
 
 
@@ -67,6 +70,11 @@ def as_dict(row):
         return None
     d = dict(row)
     d["rep_times"] = json.loads(d["rep_times"]) if d["rep_times"] else []
+    # "reps" is the number to show: the wearer's correction if there is one.
+    # "counted" is always what the counter found, so the two can be compared.
+    d["counted"] = d["reps"]
+    if d.get("reps_fixed") is not None:
+        d["reps"] = d["reps_fixed"]
     return d
 
 
@@ -89,8 +97,21 @@ def get_set(set_id):
 
 def list_sets():
     # Newest first. The set_id starts with the watch's sequence number, so it orders them.
+    # Sets taken off the dashboard are left out; their rows and files are still there.
     with closing(connect()) as db:
-        return [as_dict(row) for row in db.execute("SELECT * FROM sets ORDER BY set_id DESC")]
+        return [as_dict(row) for row in
+                db.execute("SELECT * FROM sets WHERE removed_at IS NULL ORDER BY set_id DESC")]
+
+
+# What the wearer may change about a set from the dashboard. The names are
+# fixed here, so a column name can never come from a request.
+EDITABLE = ("reps_fixed", "weight", "removed_at")
+
+
+def edit_set(set_id, column, value):
+    assert column in EDITABLE
+    with closing(connect()) as db, db:
+        db.execute(f"UPDATE sets SET {column} = ? WHERE set_id = ?", (value, set_id))
 
 
 def update_set(set_id, exercise, reps, rep_times, analysis_version):

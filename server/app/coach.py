@@ -16,6 +16,29 @@ SUGGESTIONS = {
     "stay": "Good effort. Stay at this weight.",
     "less": "Tough from the first set. Try a little less weight.",
 }
+# The same advice when the weight is known: it can name a number.
+SUGGESTIONS_WITH_WEIGHT = {
+    "more": "That looked easy. Try {next} lb next time.",
+    "stay": "Good effort. Stay at {now} lb.",
+    "less": "Tough from the first set. Try {next} lb.",
+}
+SMALL_STEP_LB, BIG_STEP_LB, BIG_FROM_LB = 2.5, 5, 50     # dumbbells go up in 2.5s, heavier loads in 5s
+
+
+def pounds(weight):
+    """25.0 -> "25", 27.5 -> "27.5"."""
+    return ("%g" % round(weight, 1))
+
+
+def sentence(kind, weight=None):
+    """The suggestion in words. weight: what the last set used, in pounds, if the wearer said."""
+    if not weight:
+        return SUGGESTIONS[kind]
+    step = BIG_STEP_LB if weight >= BIG_FROM_LB else SMALL_STEP_LB
+    change = {"more": step, "stay": 0, "less": -step}[kind]
+    if weight + change <= 0:
+        return SUGGESTIONS[kind]
+    return SUGGESTIONS_WITH_WEIGHT[kind].format(now=pounds(weight), next=pounds(weight + change))
 
 
 def pace(rep_times):
@@ -94,10 +117,12 @@ def workouts(rows, labels):
                          "sets": []}
                 exercises.append(entry)
             entry["sets"].append({"set_id": row["set_id"], "reps": row["reps"],
-                                  "slowdown_pct": pace(row["rep_times"])["slowdown_pct"]})
+                                  "slowdown_pct": pace(row["rep_times"])["slowdown_pct"],
+                                  "weight": row.get("weight"), "at": iso(when(row))})
         for entry in exercises:
             kind = suggest(entry["sets"]) if entry["exercise"] else None
-            entry["suggestion"] = {"kind": kind, "text": SUGGESTIONS[kind]} if kind else None
+            weights = [s["weight"] for s in entry["sets"] if s["weight"]]
+            entry["suggestion"] = {"kind": kind, "text": sentence(kind, weights[-1] if weights else None)} if kind else None
         start = when(group[0])
         end = when(group[-1]) + group[-1]["duration_ms"] // 1000
         result.append({
@@ -108,4 +133,31 @@ def workouts(rows, labels):
             "reps": sum(row["reps"] or 0 for row in group),
             "exercises": exercises,
         })
+    return result
+
+
+def progress(rows, labels):
+    """Each exercise across workouts, oldest first: is it going up?
+
+    Built from workouts(), so "a workout" means the same thing on every screen.
+    One entry per named exercise that has sets, in the order of `labels`.
+    change compares the newest workout's total reps with the one before it;
+    None when there is nothing to compare with.
+    """
+    history = {name: [] for name in labels}
+    for workout in reversed(workouts(rows, labels)):        # oldest first
+        for entry in workout["exercises"]:
+            if entry["exercise"] not in history:
+                continue
+            counts = [s["reps"] or 0 for s in entry["sets"]]
+            weights = [s["weight"] for s in entry["sets"] if s["weight"]]
+            history[entry["exercise"]].append({
+                "started_at": workout["started_at"], "timed": workout["timed"],
+                "sets": len(counts), "reps": sum(counts), "best": max(counts),
+                "weight": max(weights) if weights else None})
+    result = []
+    for name, points in history.items():
+        if points:
+            change = points[-1]["reps"] - points[-2]["reps"] if len(points) > 1 else None
+            result.append({"exercise": name, "label": labels[name], "workouts": points, "change": change})
     return result
