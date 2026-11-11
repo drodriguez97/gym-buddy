@@ -73,3 +73,9 @@ def update_set(set_id, exercise, reps, rep_times, analysis_version):
         db.execute(
             "UPDATE sets SET exercise = ?, reps = ?, rep_times = ?, analysis_version = ? WHERE set_id = ?",
             (exercise, reps, json.dumps(rep_times), analysis_version, set_id))
+
+
+def delete_set(set_id):
+    # Removes the row only. What happens to the raw files is the caller's decision.
+    with closing(connect()) as db, db:
+        db.execute("DELETE FROM sets WHERE set_id = ?", (set_id,))

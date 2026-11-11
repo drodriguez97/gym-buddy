@@ -254,3 +254,25 @@ def test_the_dashboard_page_is_served_at_the_root():
     response = client.get("/")
     assert response.status_code == 200 and response.headers["content-type"].startswith("text/html")
     assert "<title>Gym Buddy</title>" in response.text
+
+
+# ---- archiving: off the dashboard, never destroyed
+
+def test_archiving_moves_the_files_and_removes_the_row_and_restoring_undoes_it(folder, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("archive_sets", Path(__file__).parents[1] / "scripts" / "archive_sets.py")
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    monkeypatch.setattr(tool, "ARCHIVE", folder.parent / (folder.name + "_archive"))
+    upload(headers=CURL)
+    upload_fixture(PULLUPS, exercise="pullup")
+    original = (folder / f"{SET_ID}.bin").read_bytes()
+
+    assert tool.archive({4}) == [SET_ID]
+    assert [row["set_id"] for row in client.get("/sets").json()] == [PULLUPS]
+    assert not (folder / f"{SET_ID}.bin").exists()
+    assert (tool.ARCHIVE / f"{SET_ID}.bin").read_bytes() == original       # moved, not deleted
+
+    assert tool.restore({4}) == [SET_ID]
+    assert (folder / f"{SET_ID}.bin").read_bytes() == original
+    assert db.get_set(SET_ID)["reps"] == 6 and len(db.list_sets()) == 2
