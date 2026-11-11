@@ -2,6 +2,7 @@
 # Times each thing main.py and recorder.py do, so a slow one stands out.
 # A reading is due every 10 ms, so anything near or over 5 ms in the recording
 # loop makes readings late. Writes nothing permanent: its test file is removed.
+import gc
 import os
 import time
 import machine
@@ -46,6 +47,10 @@ size = sum(os.stat("/flash/sets/" + n)[6] for n in names)
 s = os.statvfs("/flash")
 print("CPU %d MHz, %d files in /flash/sets (%d KB), flash %d%% free"
       % (machine.freq() // 1000000, len(names), size // 1024, 100 * s[4] // s[2]))
+start = time.ticks_us()
+gc.collect()
+print("memory: %d KB free, %d KB in use; one clean-up (gc.collect) took %.1f ms"
+      % (gc.mem_free() // 1024, gc.mem_alloc() // 1024, time.ticks_diff(time.ticks_us(), start) / 1000))
 print()
 print("During a set, every 10 ms:")
 measure("time.sleep_ms(1)", lambda: time.sleep_ms(1))

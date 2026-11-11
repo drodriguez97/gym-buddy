@@ -4,10 +4,12 @@ main.py is an endless loop written for MicroPython, so it can't be imported.
 run() swaps in fake M5, machine, esp32, recorder, time and os modules, executes
 the file, and returns what happened as a list of (seconds, event) pairs.
 
-Events: "backlight on", "backlight off", "screen: <text>", "status line",
+Events: "backlight on", "backlight off", "screen: <text>", "paint" (shapes),
 "recording start", "recording stop", "light sleep", "woke by button",
-"deep sleep", "pin saved <n>", "sync", "radios off", "flash measured".
+"deep sleep", "pin saved <n>", "sync", "radios off", "flash measured",
+"exercise saved <n>", "set exercise <name>", "reset", "backlight dim", "beep".
 """
+import importlib.util
 import sys
 import types
 from pathlib import Path
@@ -31,11 +33,18 @@ class Result:
 
 
 def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
-        a_gpio=11, edit=None, b_presses=(), b_held_s=None, sync_result=(2, 0, None)):
+        a_gpio=11, edit=None, b_presses=(), b_held_s=None, sync_result=(2, 0, None),
+        saved_exercise=None, free_blocks=900, save_error=None, autostop_s=None, crash_at_s=None,
+        waiting=0, sync_reps=(), has_vbus=True):
     """presses: (down_s, up_s) pairs for button A. a_gpio: the GPIO it is really on.
     b_presses: the same for button B. b_held: B is down at boot (for the whole run,
     or for b_held_s seconds). sync_result: what the fake sync returns, or an
-    exception for it to raise. edit: function applied to main.py's source first."""
+    exception for it to raise. edit: function applied to main.py's source first.
+    free_blocks: free flash, in 4 KB blocks. save_error: an exception the recorder's
+    save raises. autostop_s: when the recorder halts a set by itself. crash_at_s:
+    when the recorder's poll raises an unexpected error, once. waiting: sets
+    already saved on the watch at boot. has_vbus: the firmware can read the USB
+    line's voltage (as the real watch can); if not, only its charging flag is left."""
     clock = [0]                             # virtual milliseconds
     events = []
     armed = []
@@ -51,7 +60,7 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
             return True
         return any(down * 1000 <= clock[0] < up * 1000 for down, up in b_presses)
 
-    class Stop(Exception):
+    class Stop(BaseException):              # not an Exception: main.py's crash guard must not catch it
         pass
 
     # ---- time
@@ -70,31 +79,42 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     def statvfs(path):
         say("flash measured")
         clock[0] += 480                     # as slow as the real one (timing_check.py)
-        return (4096, 0, 1000, 0, 900)
+        return (4096, 0, 1000, 0, free_blocks)
     fake_os.statvfs = statvfs
+    fake_os.listdir = lambda path: [name for i in range(waiting)
+                                    for name in ("%05d-aaaaaa.bin" % i, "%05d-aaaaaa.json" % i)]
 
     # ---- M5
     class Lcd:
         brightness = None
+        text_size = 2
 
         def setBrightness(self, value):
             if value != self.brightness:
-                say("backlight off" if value == 0 else "backlight on")
+                say("backlight off" if value == 0 else "backlight dim" if value < 30 else "backlight on")
             self.brightness = value
 
         def drawString(self, text, x, y):
-            if y >= 100:
-                say("status line")
-            elif text:
+            if text:
                 say("screen: " + text)
+
+        def setTextSize(self, size):
+            self.text_size = size
 
         def width(self):
             return 240
 
         def textWidth(self, text):
-            return 12 * len(text)
+            return 6 * self.text_size * len(text)
 
-        def __getattr__(self, name):        # fillScreen, setTextColor, sleep, wakeup, ...
+        def _paint(self, *args):
+            # Any shape. All the shapes drawn in the same millisecond are one "paint" event.
+            if not events or events[-1] != (clock[0] / 1000, "paint"):
+                say("paint")
+
+        fillScreen = fillRect = fillRoundRect = fillCircle = fillEllipse = fillTriangle = _paint
+
+        def __getattr__(self, name):        # setTextColor, setRotation, sleep, wakeup, ...
             return lambda *args: None
 
     class Button:
@@ -119,7 +139,11 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     M5.Lcd = Lcd()
     M5.BtnA = Button(held)
     M5.BtnB = Button(b_down)                # held at boot still reports "was pressed": the worst case
-    M5.Power = types.SimpleNamespace(isCharging=lambda: charging, getBatteryLevel=lambda: 80)
+    # Like the real watch: plugged in, the USB line reads about 4.9 V but isCharging() says False.
+    M5.Power = types.SimpleNamespace(isCharging=lambda: charging and not has_vbus, getBatteryLevel=lambda: 80)
+    if has_vbus:
+        M5.Power.getVBUSVoltage = lambda: 4938 if charging else 0
+    M5.Speaker = types.SimpleNamespace(tone=lambda hz, ms: say("beep"), setVolume=lambda v: None)
     M5.begin = lambda: None
 
     def update():
@@ -159,6 +183,11 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
         say("deep sleep")
         raise Stop
 
+    def reset():
+        say("reset")
+        raise Stop
+    machine.reset = reset
+
     machine.Pin = Pin
     machine.freq = lambda hz: None
     machine.EXT0_WAKE = 2
@@ -169,6 +198,8 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     # ---- esp32
     esp32 = types.ModuleType("esp32")
     store = {} if saved_pin is None else {"btn_a_pin": saved_pin}
+    if saved_exercise is not None:
+        store["exercise"] = saved_exercise
 
     class NVS:
         def __init__(self, namespace):
@@ -181,7 +212,7 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
 
         def set_i32(self, key, value):
             store[key] = value
-            say("pin saved %d" % value)
+            say(("pin saved %d" if key == "btn_a_pin" else key + " saved %d") % value)
 
         def commit(self):
             pass
@@ -195,8 +226,9 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     class Recorder:
         recording = False
 
-        def start(self):
+        def start(self, exercise=None):
             self.recording = True
+            say("set exercise %s" % exercise)
             say("recording start")
 
         def halt(self):
@@ -205,13 +237,24 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
 
         def save(self):
             clock[0] += 300                 # writing the set to flash
+            say("save")
+            if save_error:
+                raise save_error
             return {"set_id": "00030-abcdef", "count": 500, "rate_hz": 100.0, "late": 0}
 
         def stop(self):
             self.halt()
             return self.save()
 
+        crashed = False
+
         def poll(self):
+            if crash_at_s is not None and not Recorder.crashed and clock[0] >= crash_at_s * 1000:
+                Recorder.crashed = True
+                raise RuntimeError("boom")
+            if self.recording and autostop_s is not None and clock[0] >= autostop_s * 1000:
+                self.halt()
+                return True
             return None
 
     recorder.Recorder = Recorder
@@ -228,6 +271,7 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
         clock[0] += 4000                    # a sync takes a few seconds
         return sync_result
     fake_sync.sync = sync
+    fake_sync.last_reps = list(sync_reps)
 
     network = types.ModuleType("network")
 
@@ -242,8 +286,14 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     network.STA_IF = 0
     network.AP_IF = 1
 
+    # ---- faces: the real module; its drawing lands on the fake screen
+    spec = importlib.util.spec_from_file_location("faces", MAIN.parent / "faces.py")
+    real_faces = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(real_faces)
+
     fakes = {"time": fake_time, "os": fake_os, "M5": M5, "machine": machine,
-             "esp32": esp32, "recorder": recorder, "sync": fake_sync, "network": network}
+             "esp32": esp32, "recorder": recorder, "sync": fake_sync, "network": network,
+             "faces": real_faces}
     source = MAIN.read_text(encoding="utf-8")
     if edit:
         source = edit(source)

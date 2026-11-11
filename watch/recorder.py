@@ -5,6 +5,12 @@
 # stops. Writing during the set was measured (timing_check.py) to stall for up
 # to half a second, which made up to half the readings of a set late.
 # The .bin format and the 100 Hz rate are unchanged.
+#
+# Saving is all-or-nothing. The readings go to a .tmp file, then the .json is
+# written, then the .tmp is renamed to .bin. If power is lost part-way, the
+# next boot finishes the job (a .tmp with a .json) or throws the scrap away
+# (a .tmp alone). sync.py therefore never sees half a set.
+import gc
 import json
 import os
 import struct
@@ -41,11 +47,26 @@ class Recorder:
             os.mkdir(SET_DIR)
         except OSError:
             pass                        # already exists
+        self.recover()
         # Made once at boot and reused, so recording never asks for new memory.
         self.buf = bytearray(MAX_READINGS * SIZE)
         self.recording = False
 
-    def start(self):
+    def recover(self):
+        # Finish or discard a save that lost power part-way.
+        names = os.listdir(SET_DIR)
+        for name in names:
+            if name.endswith(".tmp"):
+                path = "%s/%s" % (SET_DIR, name)
+                if name[:-4] + ".json" in names:
+                    os.rename(path, path[:-4] + ".bin")     # complete: the .json is only written after the readings
+                else:
+                    os.remove(path)
+
+    def start(self, exercise=None):
+        # exercise: the name picked on the watch; the server counts with it.
+        gc.collect()                    # tidy memory now, so a clean-up is less likely mid-set
+        self.exercise = exercise
         self.set_id = _next_set_id()
         self.count = 0
         self.late = 0
@@ -55,7 +76,8 @@ class Recorder:
 
     def poll(self):
         # Call as often as possible. Takes a reading only when one is due.
-        # Returns the set's info if the time limit stopped it, else None.
+        # Returns True if the time limit just halted the set (the caller then
+        # calls save()), else None.
         if not self.recording:
             return None
         now = time.ticks_ms()
@@ -75,7 +97,8 @@ class Recorder:
         self.count += 1
 
         if time.ticks_diff(now, self.started) >= MAX_SET_MS or self.count >= MAX_READINGS:
-            return self.stop()
+            self.halt()
+            return True
         return None
 
     def halt(self):
@@ -85,10 +108,9 @@ class Recorder:
         self.recording = False
 
     def save(self):
-        # Write the set to flash. The .json goes last: sync.py treats a .bin
-        # without one as unfinished and leaves it alone.
-        with open("%s/%s.bin" % (SET_DIR, self.set_id), "wb") as f:
-            f.write(memoryview(self.buf)[: self.count * SIZE])
+        # Write the set to flash: readings to .tmp, then the .json, then rename
+        # .tmp to .bin. Raises OSError (flash full, say) with nothing left behind.
+        base = "%s/%s" % (SET_DIR, self.set_id)
         info = {
             "set_id": self.set_id,
             "count": self.count,
@@ -98,9 +120,21 @@ class Recorder:
             "format": FMT,
             "accel_unit": "mg",
             "gyro_unit": "0.1 dps",
+            "exercise": self.exercise,
         }
-        with open("%s/%s.json" % (SET_DIR, self.set_id), "w") as f:
-            json.dump(info, f)
+        try:
+            with open(base + ".tmp", "wb") as f:
+                f.write(memoryview(self.buf)[: self.count * SIZE])
+            with open(base + ".json", "w") as f:
+                json.dump(info, f)
+            os.rename(base + ".tmp", base + ".bin")
+        except OSError:
+            for path in (base + ".tmp", base + ".json"):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            raise
         return info
 
     def stop(self):

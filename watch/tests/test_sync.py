@@ -37,6 +37,7 @@ class Watch:
         self.radio_was_on = False
         self.posts = []                         # set_id of every POST attempted
         self.waited_ms = 0
+        self.timeouts = []                      # the timeout passed with each POST
         self.token = "dev-token"
         self.post = self.post_to_server         # tests swap this to break the network
         self.sync = self._load()
@@ -71,7 +72,7 @@ class Watch:
                                             SERVER="http://server", TOKEN="dev-token"),
             "time": types.SimpleNamespace(ticks_ms=lambda: clock[0], sleep_ms=sleep_ms,
                                           ticks_diff=lambda a, b: a - b),
-            "requests": types.SimpleNamespace(post=lambda url, data, headers: watch.post(url, data, headers)),
+            "requests": types.SimpleNamespace(post=watch._post),
         }
         real = {name: sys.modules.get(name) for name in fakes}
         sys.modules.update(fakes)
@@ -86,6 +87,10 @@ class Watch:
                 else:
                     sys.modules[name] = old
         return module
+
+    def _post(self, url, data=None, headers=None, timeout=None):
+        self.timeouts.append(timeout)
+        return self.post(url, data, headers)
 
     def post_to_server(self, url, data, headers):
         self.posts.append(json.loads(headers["X-Set-Meta"])["set_id"])
@@ -254,3 +259,58 @@ def test_a_stray_json_from_a_cut_short_delete_is_cleaned_up(watch):
     (watch.flash / (SETS[0] + ".bin")).unlink()         # deleted after its receipt, then power was lost
     assert watch.sync.pending_sets() == [SETS[1]]
     assert watch.on_watch() == [SETS[1] + ".bin", SETS[1] + ".json"]
+
+
+# ---- never hang, never lose a half-saved set
+
+def test_every_upload_has_a_timeout(watch):
+    watch.sync.sync()
+    assert watch.timeouts == [watch.sync.POST_TIMEOUT_S] * 2
+
+
+def test_an_older_requests_library_without_timeout_still_uploads(watch):
+    def old_library(url, data=None, headers=None):
+        return watch.post_to_server(url, data, headers)
+    watch.sync.requests.post = old_library
+    assert watch.sync.sync() == (2, 0, None)
+
+
+def test_retries_are_reported_for_the_screen(watch):
+    def down(url, data, headers):
+        raise OSError("unreachable")
+    watch.post = down
+    seen = []
+    watch.sync.sync(seen.append)
+    assert seen == ["joining Wi-Fi", "set 1 of 2", "retry 2 of 3", "retry 3 of 3"]
+
+
+def test_a_half_saved_set_is_left_for_the_recorder_to_finish(watch):
+    # .tmp + .json: power was lost before the rename. Not uploaded, and its .json is NOT deleted.
+    (watch.flash / "00040-abcdef.tmp").write_bytes(b"\x00" * 120)
+    (watch.flash / "00040-abcdef.json").write_text('{"set_id": "00040-abcdef", "count": 10}')
+    assert watch.sync.sync() == (2, 0, None)
+    assert watch.on_watch() == ["00040-abcdef.json", "00040-abcdef.tmp"]
+    assert "00040-abcdef" not in watch.posts
+
+
+# ---- rep counts from the server
+
+def test_rep_counts_in_the_receipt_are_kept_for_the_screen(watch):
+    def with_reps(url, data, headers):
+        set_id = json.loads(headers["X-Set-Meta"])["set_id"]
+        watch.post_to_server(url, data, headers)
+        return Reply(201, {"set_id": set_id, "stored": True, "reps": 6})
+    watch.post = with_reps
+    assert watch.sync.sync() == (2, 0, None)
+    assert watch.sync.last_reps == [6, 6]
+
+
+def test_a_server_that_sends_no_counts_is_fine(watch):
+    assert watch.sync.sync() == (2, 0, None)
+    assert watch.sync.last_reps == []
+
+
+def test_counts_from_an_earlier_sync_are_forgotten(watch):
+    watch.sync.last_reps.append(99)
+    watch.sync.sync()
+    assert watch.sync.last_reps == []

@@ -21,6 +21,8 @@ SET_DIR = "/flash/sets"
 WIFI_TIMEOUT_MS = 15000
 TRIES = 3                       # per set, when the server can't be reached
 RETRY_WAIT_MS = 5000
+POST_TIMEOUT_S = 15             # give up on one upload after this long; never hang with Wi-Fi on
+last_reps = []                  # rep count of each set stored by the latest sync, when the server sends one
 
 
 def pending_sets():
@@ -37,6 +39,8 @@ def pending_sets():
         set_id = name[:-5]
         if set_id + ".bin" in names:
             ready.append(set_id)
+        elif set_id + ".tmp" in names:
+            pass                # a save cut short by power loss; the recorder finishes it at boot
         else:
             # Left over from a delete that was cut short after the receipt: the
             # server already has this set, so the stray .json can go.
@@ -66,6 +70,13 @@ def wifi_off():
         pass
 
 
+def post(url, data, headers):
+    try:
+        return requests.post(url, data=data, headers=headers, timeout=POST_TIMEOUT_S)
+    except TypeError:           # an older requests library without timeout
+        return requests.post(url, data=data, headers=headers)
+
+
 def upload_set(set_id):
     # Returns "stored" (and the set is deleted), "rejected" (server refused it; kept),
     # "bad token" or "no receipt". Raises OSError if the server can't be reached.
@@ -73,9 +84,8 @@ def upload_set(set_id):
         meta = f.read().strip()
     with open("%s/%s.bin" % (SET_DIR, set_id), "rb") as f:
         data = f.read()
-    r = requests.post(config.SERVER + "/sets", data=data,
-                      headers={"X-Token": config.TOKEN, "X-Set-Meta": meta,
-                               "Content-Type": "application/octet-stream"})
+    r = post(config.SERVER + "/sets", data,
+             {"X-Token": config.TOKEN, "X-Set-Meta": meta, "Content-Type": "application/octet-stream"})
     try:
         status = r.status_code
         try:
@@ -94,6 +104,8 @@ def upload_set(set_id):
     if (status != 201 or not isinstance(receipt, dict)
             or receipt.get("set_id") != set_id or receipt.get("stored") is not True):
         return "no receipt"
+    if isinstance(receipt.get("reps"), int):
+        last_reps.append(receipt["reps"])
     os.remove("%s/%s.bin" % (SET_DIR, set_id))      # .bin first: a stray .json is cleaned up later
     os.remove("%s/%s.json" % (SET_DIR, set_id))
     return "stored"
@@ -106,6 +118,7 @@ def sync(report=None):
         if report:
             report(text)
 
+    del last_reps[:]
     sets = pending_sets()
     if not sets:
         return 0, 0, None
@@ -125,6 +138,7 @@ def sync(report=None):
                     break
                 except OSError:
                     if attempt + 1 < TRIES:
+                        say("retry %d of %d" % (attempt + 2, TRIES))
                         time.sleep_ms(RETRY_WAIT_MS)
             if result is None:
                 problem = "no server"       # unreachable after every try: the rest would fail too

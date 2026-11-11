@@ -70,11 +70,11 @@ class Bench:
         self.rec = self.module.Recorder()
 
     def run(self, ms, step=1):
-        # Let time pass, polling like main.py's loop does. Returns info if the set stopped itself.
+        # Let time pass, polling like main.py's loop does. If the set halts
+        # itself, saves it as main.py would and returns the info.
         for _ in range(0, ms, step):
-            info = self.rec.poll()
-            if info:
-                return info
+            if self.rec.poll():
+                return self.rec.save()
             self.clock += step
         return None
 
@@ -119,8 +119,16 @@ def test_the_json_has_the_fields_the_server_and_analyzer_read(bench):
     bench.rec.start()
     bench.run(2000)
     info = bench.rec.stop()
-    assert set(info) == {"set_id", "count", "duration_ms", "rate_hz", "late", "format", "accel_unit", "gyro_unit"}
+    assert set(info) == {"set_id", "count", "duration_ms", "rate_hz", "late", "format", "accel_unit",
+                         "gyro_unit", "exercise"}
     assert info["format"] == "<6h" and info["accel_unit"] == "mg" and info["gyro_unit"] == "0.1 dps"
+
+
+def test_the_picked_exercise_is_saved_with_the_set(bench):
+    bench.rec.start("pullup")
+    bench.run(500)
+    info = bench.rec.stop()
+    assert json.loads((bench.flash / (info["set_id"] + ".json")).read_text())["exercise"] == "pullup"
 
 
 def test_100_readings_a_second_on_a_steady_loop(bench):
@@ -198,3 +206,61 @@ def test_a_recorded_set_loads_in_the_analyzer(bench):
     assert accel.shape == (300, 3) and gyro.shape == (300, 3)
     assert accel[0].tolist() == pytest.approx([0.012, -0.985, 0.068])
     assert gyro[0].tolist() == pytest.approx([0.3, -0.1, 12.5])
+
+
+# ---- saving is all-or-nothing
+
+def test_no_scrap_files_are_left_after_a_save(bench):
+    bench.rec.start()
+    bench.run(1000)
+    info = bench.rec.stop()
+    assert bench.files() == [info["set_id"] + ".bin", info["set_id"] + ".json"]
+
+
+def test_the_time_limit_halts_without_saving_so_the_screen_can_say_saving(bench):
+    bench.rec.start()
+    for _ in range(0, 130000, 2):
+        if bench.rec.poll():
+            break
+        bench.clock += 2
+    assert not bench.rec.recording
+    assert bench.files() == []              # main.py draws "SAVING", then calls save()
+
+
+def test_a_failed_save_leaves_nothing_behind_and_raises(bench, monkeypatch):
+    bench.rec.start()
+    bench.run(1000)
+    real_rename = bench.module.os.rename
+
+    def full(src, dst):
+        raise OSError(28, "no space")
+    monkeypatch.setattr(bench.module.os, "rename", full)
+    with pytest.raises(OSError):
+        bench.rec.stop()
+    monkeypatch.setattr(bench.module.os, "rename", real_rename)
+    assert bench.files() == []
+
+
+def test_power_lost_after_the_json_is_finished_at_the_next_boot(bench):
+    # The readings (.tmp) and the .json were written, the rename never happened.
+    (bench.flash / "00009-aaaaaa.tmp").write_bytes(b"\x01" * 120)
+    (bench.flash / "00009-aaaaaa.json").write_text('{"set_id": "00009-aaaaaa", "count": 10}')
+    bench.module.Recorder()                 # a boot
+    assert bench.files() == ["00009-aaaaaa.bin", "00009-aaaaaa.json"]
+    assert (bench.flash / "00009-aaaaaa.bin").read_bytes() == b"\x01" * 120
+
+
+def test_power_lost_mid_write_is_thrown_away_at_the_next_boot(bench):
+    # Only part of the readings made it: no .json, so it can't be trusted.
+    (bench.flash / "00009-aaaaaa.tmp").write_bytes(b"\x01" * 60)
+    bench.module.Recorder()
+    assert bench.files() == []
+
+
+def test_recovery_leaves_finished_sets_alone(bench):
+    bench.rec.start()
+    bench.run(500)
+    info = bench.rec.stop()
+    before = (bench.flash / (info["set_id"] + ".bin")).read_bytes()
+    bench.module.Recorder()
+    assert (bench.flash / (info["set_id"] + ".bin")).read_bytes() == before
