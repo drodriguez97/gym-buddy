@@ -99,7 +99,7 @@ the count right and makes every set a labeled example for later.
 **How is it tested without the hardware?** A fake watch: stand-ins for the
 screen, buttons, sensor and clock, with time under the test's control. The
 real watch code runs against it, and the sync tests upload to the real server
-code. About 180 watch tests and 160 server tests.
+code. About 190 watch tests and 210 server tests.
 
 **What would you do next?** HTTPS from the watch and a token per device; use
 the corrected counts to improve the counter; automatic exercise guess with
