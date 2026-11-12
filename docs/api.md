@@ -23,7 +23,9 @@ wild guess.
 
 - `GET /login`: the sign-in page. `POST /login` with `{"password": "..."}`:
   200 and a cookie, or 401 after a one-second wait (which makes guessing slow).
-  `POST /logout` clears the cookie.
+  `POST /logout` clears the cookie. `GET /session` answers
+  `{"password": true}`, or `false` on a server with no password, where the
+  page hides "Sign out" because there is nothing to sign out of.
 - The cookie holds a fingerprint of the password (an HMAC), not the password.
   It can't be made without knowing the password, and changing the password
   signs everyone out. It is `HttpOnly` (page scripts can't read it),
@@ -152,5 +154,9 @@ One page, `server/app/static/index.html`: plain HTML and JavaScript, no
 framework, no build step. Four screens: Today (`/workouts`), one set
 (`/sets/{id}`), Progress (`/progress`), Watch (`/watch/health`). A set that
 arrives while the page is open is marked "New" for two minutes.
-`login.html` is the sign-in page. It asks again every 4 seconds while
+`login.html` is the sign-in page. Both pages are sent with
+`Cache-Control: no-cache`, so a phone asks for the newer copy after an update.
+`/manifest.webmanifest` and `/icon-180.png`, `-192`, `-512` are open to
+everyone: they are what "Add to Home Screen" uses to make it an app icon
+that opens full screen. It asks again every 4 seconds while
 visible, so a sync shows up without a reload.

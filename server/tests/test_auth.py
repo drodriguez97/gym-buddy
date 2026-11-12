@@ -178,3 +178,52 @@ def test_the_password_does_not_work_as_the_watch_token(client, password):
 
 def test_the_ping_stays_open_so_the_watch_and_monitors_can_check_the_server_is_up(client, password):
     assert client.get("/health").status_code == 200
+
+
+# ---- the page asks whether there is anything to sign out of
+
+def test_the_page_can_tell_that_no_password_is_set(client):
+    assert client.get("/session").json() == {"password": False}
+
+
+def test_with_a_password_the_session_says_so_only_once_signed_in(client, password):
+    assert client.get("/session").status_code == 401
+    client.post("/login", json={"password": PASSWORD})
+    assert client.get("/session").json() == {"password": True}
+
+
+# ---- "Add to Home Screen": the icon and the manifest are open, because a phone asks for them without the cookie
+
+@pytest.mark.parametrize("path", ["/icon-180.png", "/icon-192.png", "/icon-512.png"])
+def test_the_app_icons_are_open_and_are_png_files(client, password, path):
+    response = client.get(path)
+    assert response.status_code == 200 and response.headers["content-type"] == "image/png"
+    assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_an_icon_size_that_does_not_exist_is_not_found(client, password):
+    assert client.get("/icon-999.png").status_code == 404
+    assert client.get("/icon-..%2Fmain.png").status_code in (404, 422)
+
+
+def test_the_manifest_is_open_and_points_at_icons_that_exist(client, password):
+    response = client.get("/manifest.webmanifest")
+    assert response.status_code == 200
+    manifest = response.json()
+    assert manifest["display"] == "standalone" and manifest["start_url"] == "/"
+    for icon in manifest["icons"]:
+        assert client.get(icon["src"]).status_code == 200
+
+
+@pytest.mark.parametrize("page", ["index.html", "login.html"])
+def test_both_pages_offer_the_icon_and_the_manifest_and_load_nothing_from_elsewhere(page):
+    html = (Path(__file__).parents[1] / "app" / "static" / page).read_text(encoding="utf-8")
+    assert 'rel="apple-touch-icon" href="/icon-180.png"' in html
+    assert 'rel="manifest" href="/manifest.webmanifest"' in html
+    assert "https://" not in html and "http://www.w3.org" in html      # only the SVG namespace, which is a name, not a request
+
+
+@pytest.mark.parametrize("path", ["/", "/login"])
+def test_the_pages_tell_the_browser_to_check_for_a_newer_copy(client, path):
+    # Otherwise a phone keeps showing the old dashboard after the server is updated.
+    assert client.get(path).headers["cache-control"] == "no-cache"

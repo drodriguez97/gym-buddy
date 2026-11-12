@@ -6,6 +6,13 @@
 <meta name="theme-color" content="#0B0B0C" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <title>Gym Buddy</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect width='28' height='28' rx='8'/%3E%3Crect x='5.5' y='8' width='7' height='9' rx='3' fill='%237CFF6B'/%3E%3Crect x='15.5' y='8' width='7' height='9' rx='3' fill='%237CFF6B'/%3E%3Cpath d='M11 20.5q3 2.2 6 0' stroke='%237CFF6B' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<!-- "Add to Home Screen" on a phone: its own icon, and it opens full screen like an app, without the browser's bars. -->
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Gym Buddy">
 <style>
   /* Phone first. One question per screen, with the answer on top.
      Colours mean the same as on the watch: green = good, amber = needs a look, orange = effort or trouble.
@@ -105,7 +112,8 @@
           transition: transform 0.15s var(--ease), background-color 0.15s; }
   .chip .n { font-size: 22px; font-weight: 650; line-height: 1; }
   .chip .k { font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1.2; white-space: nowrap; }
-  .chip.unknown .n { color: var(--muted); }
+  .chip.unknown .n, .chip.none .n { color: var(--muted); }
+  .chip.none { background: none; box-shadow: inset 0 0 0 1.5px var(--raised-2); }
   .chip.slowed { background: var(--effort-bg); }
   .chip.slowed .n, .chip.slowed .k { color: var(--effort-text); }
   .chip .flag { position: absolute; top: 5px; right: 5px; color: var(--effort-text); }
@@ -137,8 +145,9 @@
   .rowlink svg { color: var(--muted); }
   .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 10px; font-size: 15px; }
   .kv + .kv { border-top: 1px solid var(--line); }
-  .kv span:first-child { color: var(--muted); }
-  .kv span:last-child { text-align: right; }
+  .kv > span:first-child { color: var(--muted); }
+  .kv > span:last-child { text-align: right; }
+  .kv .sub { display: block; color: var(--muted); font-size: 13px; }
   .back { align-self: flex-start; display: flex; align-items: center; gap: 2px; min-height: 44px; padding: 0 14px 0 6px; margin: -4px 0 -4px -6px;
           border-radius: 22px; font-size: 16px; font-weight: 500; color: var(--muted);
           transition: transform 0.15s var(--ease), background-color 0.15s; }
@@ -376,6 +385,7 @@ const TOAST_MS = 7000;        // how long a message at the bottom stays up
 
 let workouts = [];            // newest first, as GET /workouts returned them
 let health = null;            // GET /watch/health
+let locked = true;            // GET /session: false when the server has no password, so there is nothing to sign out of
 let exercises = [];           // [{name, label}] for the dropdown
 let shown = 0;                // which workout is on screen: 0 = the newest
 let openSet = null;           // the set on the detail screen, as GET /sets/{id} returned it
@@ -444,13 +454,21 @@ function ago(date) {
   return days + (days === 1 ? " day ago" : " days ago");
 }
 
+function clockTime(date) {
+  // "7:42 PM" for today, "Nov 10, 7:42 PM" for any other day.
+  const time = date.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+  if (new Date().toDateString() === date.toDateString()) return time;
+  return date.toLocaleDateString(undefined, {month: "short", day: "numeric"}) + ", " + time;
+}
+
 function workoutTitle(workout) {
   const date = new Date(workout.started_at);
   const today = new Date().toDateString() === date.toDateString();
   const day = today ? "Today" : date.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
   const time = date.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
-  // Sets recorded before the watch knew the time are dated by when they were synced.
-  return day + (workout.timed ? ", " + time : ", synced " + time);
+  // Sets recorded before the watch knew the time are dated by when they were uploaded.
+  // "uploaded", not "synced": this is when these sets arrived, not when the watch last synced.
+  return day + (workout.timed ? ", " + time : ", uploaded " + time);
 }
 
 function route() {
@@ -465,7 +483,7 @@ function drawStatus() {
   // The pill in the corner, the "can't reach the server" strip, and which section is lit in the bar.
   let dot = "", words = "";
   if (serverDown) { dot = "fail"; words = "Can't reach the server"; }
-  else if (health && health.seen) { dot = health.status; words = "Watch seen " + ago(new Date(health.received_at)); }
+  else if (health && health.seen) { dot = health.status; words = "Last sync " + ago(new Date(health.received_at)); }
   else if (health) { dot = "warn"; words = "No word from the watch yet"; }
   statusEl.hidden = !words;
   if (words) {
@@ -566,6 +584,8 @@ function countUp(node, from, to) {
     if (t < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
+  // A phone stops drawing frames when the page goes to the background. Whatever happens, end on the real number.
+  setTimeout(() => { if (node.isConnected) node.textContent = String(to); }, lasts + 150);
 }
 
 function skeleton(screen) {
@@ -631,7 +651,7 @@ function drawToday() {
         const fresh = isNew(set.set_id);
         const spoken = (fresh ? "New. " : "") + "Set " + (i + 1) + ", " + (set.reps === null ? "not counted" : plural(set.reps, "rep"))
                      + (set.weight ? ", " + pounds(set.weight) : "") + (slowed ? ", slowed at the end" : "");
-        return el("button", {class: "chip" + (set.reps === null ? " unknown" : "") + (slowed ? " slowed" : "") + (fresh ? " new" : ""),
+        return el("button", {class: "chip" + (set.reps === null ? " unknown" : set.reps === 0 ? " none" : "") + (slowed ? " slowed" : "") + (fresh ? " new" : ""),
                              style: "--c:" + i, "aria-label": spoken, onclick: () => { location.hash = "set=" + set.set_id; }},
                   ...(fresh ? [el("span", {class: "tag"}, "New")] : []),
                   ...(slowed ? [el("span", {class: "flag"}, icon("slowed", 12, 2.8))] : []),
@@ -802,6 +822,8 @@ function drawSet() {
 
   const pace = paceCard(set);
   const gaps = set.gaps || [];
+  // When the set happened; for one recorded before the watch knew the time, when it was uploaded.
+  const when = set.started_at ? new Date(set.started_at * 1000) : new Date(set.received_at.replace(" ", "T") + "Z");
   const big = bigNumber(set.reps, set.reps === 1 ? "rep" : "reps");
   const hero = el("section", {class: "card hero", "data-rise": ""},
     el("div", {class: "eyebrow"}, labelOf(set.exercise)),
@@ -818,6 +840,7 @@ function drawSet() {
             callout("effort", "info", "This set was removed. It isn't counted in your workouts."),
             el("button", {class: "offer", onclick: restore}, "Put it back"))] : []),
         ...(set.counted === null && !corrected ? [el("div", {"data-rise": ""}, callout("effort", "warn", "This set couldn't be counted. Its recording is saved. You can set the reps yourself."))] : []),
+        ...(set.counted === 0 && !corrected && !set.removed_at ? [el("div", {"data-rise": ""}, callout("", "info", "No reps were found in this recording. If it was a test press, remove the set. If not, set the reps yourself."))] : []),
         ...(corrected && pace && set.counted !== set.reps ? [el("div", {"data-rise": ""}, callout("", "info", "The pace below is from the " + plural(set.counted, "rep") + " the counter found."))] : []),
         ...(pace ? [pace] : [])),
       el("div", {class: "stack"},
@@ -827,8 +850,8 @@ function drawSet() {
           el("div", {class: "field"}, el("label", {for: "exercise"}, "Exercise"), el("div", {class: "pick"}, select, icon("down", 18))),
           note),
         el("section", {class: "card rows", "data-rise": "", "aria-label": "About this set"},
-          el("div", {class: "kv"}, el("span", {}, set.started_at ? "Started" : "Synced"),
-            el("span", {}, set.started_at ? ago(new Date(set.started_at * 1000)) : ago(new Date(set.received_at.replace(" ", "T") + "Z")))),
+          el("div", {class: "kv"}, el("span", {}, set.started_at ? "Started" : "Uploaded"),
+            el("span", {}, clockTime(when), el("span", {class: "sub"}, ago(when)))),
           el("div", {class: "kv"}, el("span", {}, "Set number"), el("span", {class: "num"}, set.set_id.slice(0, 5)))),
         ...(set.removed_at ? [] : [removeButton, removeNote]))));
   return {node: big.number, value: set.reps};
@@ -913,10 +936,13 @@ function drawWatch() {
           el("div", {class: "value"}, check.value)))),
       el("div", {class: "foot", "data-rise": ""}, icon("info", 16),
         el("span", {}, "The watch sends these numbers after every sync. The limits are set on the server.")),
-      el("button", {class: "linkbtn", "data-rise": "", style: "padding:0 4px", onclick: async () => {
-        try { await change("POST", "/logout"); } catch (error) { /* signing out of a server that is down: nothing to do */ }
-        location.replace("/login");
-      }}, "Sign out"))));
+      locked
+        ? el("button", {class: "linkbtn", "data-rise": "", style: "padding:0 4px", onclick: async () => {
+            try { await change("POST", "/logout"); } catch (error) { /* signing out of a server that is down: nothing to do */ }
+            location.replace("/login");
+          }}, "Sign out")
+        : el("div", {class: "foot", "data-rise": ""}, icon("info", 16),
+            el("span", {}, "This server has no password: anyone on the same Wi-Fi can open this page.")))));
 }
 
 function draw(force) {
@@ -1007,6 +1033,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
 // Not while a dropdown is open or a number is being typed: a redraw would take it out of the person's hands.
 setInterval(() => { if (!document.hidden && !["SELECT", "INPUT"].includes(document.activeElement.tagName)) refresh(); }, REFRESH_MS);
 draw(true);                                             // grey shapes straight away, then the real thing
+fetch("/session").then(r => r.ok ? r.json() : null).then(s => { if (s && !s.password) { locked = false; draw(true); } }).catch(() => {});
 refresh();
 </script>
 </body>

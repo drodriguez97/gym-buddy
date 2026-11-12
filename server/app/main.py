@@ -25,6 +25,9 @@ SET_ID = re.compile(r"^\d{5}-[0-9a-f]{6}$")     # e.g. 00004-a956cd, nothing els
 BYTES_PER_READING = 12                          # 6 int16s: accel xyz, gyro xyz
 ANALYSIS_VERSION = 1                            # raise when count_reps changes, so old rows can be found and recounted
 PAGES = Path(__file__).parent / "static"
+# Sent with both pages: "ask me before reusing your saved copy". Without it a
+# phone can keep showing the old page after an update (seen 2026-11-11).
+FRESH = {"Cache-Control": "no-cache"}
 # The exercises the watch offers, in its order: (name stored with the set, label shown to people).
 EXERCISES = [
     ("curl", "Curl"),
@@ -269,14 +272,37 @@ def dashboard(request: Request, credentials: HTTPBasicCredentials | None = Depen
     # A person who isn't signed in is sent to the sign-in page, not shown an error.
     if not signed_in(request, credentials):
         return RedirectResponse("/login", status_code=303)
-    return FileResponse(PAGES / "index.html")
+    return FileResponse(PAGES / "index.html", headers=FRESH)
+
+
+ICON_SIZES = (180, 192, 512)
+
+
+@app.get("/icon-{size}.png", include_in_schema=False)
+def app_icon(size: int):
+    # The home-screen icon. Open to everyone: a phone asks for it without the cookie.
+    if size not in ICON_SIZES:
+        raise HTTPException(status_code=404, detail="no such icon")
+    return FileResponse(PAGES / ("icon-%d.png" % size), media_type="image/png")
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def app_manifest():
+    # Tells a phone how "Add to Home Screen" should behave: the name, the icon,
+    # and "standalone" (full screen, without the browser's bars). No secrets in it.
+    return Response(json.dumps({
+        "name": "Gym Buddy", "short_name": "Gym Buddy", "start_url": "/", "display": "standalone",
+        "background_color": "#0B0B0C", "theme_color": "#0B0B0C",
+        "icons": [{"src": "/icon-%d.png" % size, "sizes": "%dx%d" % (size, size), "type": "image/png",
+                   "purpose": "any maskable"} for size in ICON_SIZES if size != 180],
+    }), media_type="application/manifest+json")
 
 
 @app.get("/login", include_in_schema=False)
 def login_page(request: Request):
     if signed_in(request):
         return RedirectResponse("/", status_code=303)
-    return FileResponse(PAGES / "login.html")
+    return FileResponse(PAGES / "login.html", headers=FRESH)
 
 
 class SignIn(BaseModel):
@@ -295,6 +321,12 @@ def sign_in(attempt: SignIn, request: Request, response: Response):
     response.set_cookie(SESSION_COOKIE, session_value(), max_age=SESSION_DAYS * 24 * 3600,
                         httponly=True, samesite="lax", secure=https)
     return {"signed_in": True}
+
+
+@app.get("/session")
+def session(_: None = Depends(viewer)):
+    # Lets the page hide "Sign out" on a server that has no password to sign out of.
+    return {"password": bool(PASSWORD)}
 
 
 @app.post("/logout")
