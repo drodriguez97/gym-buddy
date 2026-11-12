@@ -64,6 +64,8 @@ SPLASH_MS = 3000            # "SAVED" and "SYNCED" show this long, then the read
 WORKOUT_MS = 5 * 60000      # after a set, stay on (dimmed) this long: one press starts the next set
 DIM_BRIGHTNESS = 14         # the backlight while RESTING. 0 turns RESTING off.
 SOUND = True                # beep on start and stop
+SPEAKER_OFF_WHEN_DARK = True  # switch the speaker off with the screen. Left on, it pops at every nap and wastes battery.
+VOLUME = 96
 AUTO_SYNC = True            # sync by itself while charging, when sets are waiting
 AUTO_SYNC_IDLE_MS = 10000   # ...after this long with no presses
 AUTO_SYNC_EVERY_MS = 5 * 60000  # ...and not more often than this
@@ -118,12 +120,35 @@ def on_usb():
         return False
 
 
+def speaker_off():
+    # The amplifier stays live after a beep. Each light-sleep nap then stops and
+    # restarts the audio lines feeding it, which it turns into a small pop every
+    # couple of seconds (heard 2026-11-11). Nothing beeps while the screen is dark.
+    if not SPEAKER_OFF_WHEN_DARK:
+        return
+    try:
+        M5.Speaker.end()
+    except Exception:
+        pass                    # this firmware can't: it stays as it was
+
+
+def speaker_on():
+    if not SPEAKER_OFF_WHEN_DARK:
+        return
+    try:
+        M5.Speaker.begin()
+        M5.Speaker.setVolume(VOLUME)
+    except Exception:
+        pass
+
+
 def screen_sleep():
     lcd.setBrightness(0)
     try:
         lcd.sleep()             # panel standby, not just backlight off
     except Exception:
         pass
+    speaker_off()
 
 
 def beep(times):
@@ -144,6 +169,7 @@ def screen_wake(draw=None):
         lcd.wakeup()
     except Exception:
         pass
+    speaker_on()                # before any press can ask for a beep
     global dimmed
     if draw:
         draw()
@@ -439,7 +465,7 @@ b_synced = False                            # this press already started a sync
 rest_until = None                           # RESTING until then: a set finished recently
 next_auto_sync = time.ticks_ms()            # earliest time to look at auto-sync again
 try:
-    M5.Speaker.setVolume(96)
+    M5.Speaker.setVolume(VOLUME)
 except Exception:
     pass
 

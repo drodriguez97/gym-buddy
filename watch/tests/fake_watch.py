@@ -8,7 +8,7 @@ Events: "backlight on", "backlight off", "screen: <text>", "paint" (shapes),
 "recording start", "recording stop", "light sleep", "woke by button",
 "deep sleep", "pin saved <n>", "sync", "radios off", "flash measured",
 "exercise saved <n>", "set exercise <name>", "reset", "backlight dim", "beep",
-"health <accel> <gyro>" (the snapshot handed to a sync).
+"health <accel> <gyro>" (the snapshot handed to a sync), "speaker on", "speaker off".
 """
 import importlib.util
 import sys
@@ -146,7 +146,8 @@ def run(presses=(), run_for_s=60, charging=False, b_held=False, saved_pin=None,
     M5.Power = types.SimpleNamespace(isCharging=lambda: charging and not has_vbus, getBatteryLevel=lambda: 80)
     if has_vbus:
         M5.Power.getVBUSVoltage = lambda: 4938 if charging else 0
-    M5.Speaker = types.SimpleNamespace(tone=lambda hz, ms: say("beep"), setVolume=lambda v: None)
+    M5.Speaker = types.SimpleNamespace(tone=lambda hz, ms: say("beep"), setVolume=lambda v: None,
+                                       begin=lambda: say("speaker on"), end=lambda: say("speaker off"))
     M5.Power.getBatteryVoltage = lambda: 3860
     M5.Imu = types.SimpleNamespace(getAccel=lambda: (0.0, 0.6, 0.8), getGyro=lambda: (3.0, 0.0, 4.0))
     M5.begin = lambda: None

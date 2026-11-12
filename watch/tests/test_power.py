@@ -680,3 +680,46 @@ def test_no_sync_by_itself_without_a_set_or_in_dev_mode_or_switched_off():
     assert not run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11,
                    edit=set_one_edit("SYNC_AFTER_WORKOUT", False)).has("sync")
 
+
+# ---- the speaker is off while the screen is dark (it popped at every nap)
+
+def test_the_speaker_goes_off_with_the_screen_before_the_first_nap():
+    r = run(run_for_s=60, saved_pin=11)
+    off = r.times("speaker off")
+    assert len(off) == 1 and off[0] == r.times("backlight off")[0]
+    assert off[0] <= r.times("light sleep")[0]
+
+
+def test_the_speaker_is_back_on_before_the_beep_that_starts_the_next_set():
+    # Dark by 21 s. A press at 30 s wakes the screen; a press at 33 s starts a set.
+    r = run(presses=[press(30), press(33)], run_for_s=36, saved_pin=11)
+    on = [t for t in r.times("speaker on") if t > 25]
+    assert len(on) == 1 and 30 <= on[0] < 30.5
+    assert on[0] < r.times("beep")[0]
+
+
+def test_the_speaker_is_never_off_during_a_set_or_a_beep():
+    r = run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11)
+    off = r.times("speaker off")
+    assert off and all(t > max(r.times("beep")) for t in off)
+
+
+def test_the_speaker_is_off_before_deep_sleep():
+    r = run(run_for_s=900, saved_pin=11)
+    assert r.times("speaker off")[0] < r.times("deep sleep")[0]
+    assert len(r.times("speaker off")) == 1         # once, not at every nap
+
+
+def test_the_speaker_switch_can_be_turned_off():
+    r = run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11,
+            edit=set_one_edit("SPEAKER_OFF_WHEN_DARK", False))
+    assert not r.has("speaker off") and not r.has("speaker on")
+    assert len(r.times("beep")) == 3                # one to start, two to stop: unchanged
+
+
+def test_a_firmware_without_speaker_control_still_sleeps_and_beeps():
+    def no_control(source):
+        return source.replace("M5.Speaker.end()", "M5.Speaker.no_such()").replace(
+            "M5.Speaker.begin()", "M5.Speaker.no_such()")
+    r = run(presses=[press(1), press(6)], run_for_s=400, saved_pin=11, edit=no_control)
+    assert len(r.times("beep")) == 3 and r.has("light sleep")
