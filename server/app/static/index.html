@@ -316,13 +316,18 @@
            font-weight: 600; font-size: 15px; }
   .danger { width: 100%; min-height: 48px; border-radius: var(--r-card); background: var(--card); color: var(--effort-text);
             font-weight: 600; box-shadow: var(--card-shadow); }
-  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 30;
-           display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px); padding: 4px 6px 4px 16px; min-height: 48px;
+  .toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 30;
+            display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px);
+            pointer-events: none; }
+  .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: 100%; padding: 4px 6px 4px 10px; min-height: 48px;
            border-radius: 16px; background: var(--text); color: var(--bg); font-size: 15px; font-weight: 500;
            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); animation: toast-in 0.25s var(--ease); }
-  .toast[hidden] { display: none; }
+  .toast .ti { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; flex: none; }
+  .toast.good .ti { background: var(--good); color: var(--on-good); }
+  .toast.warn .ti { background: var(--effort); color: var(--on-effort); }
+  .toast .tt { padding-right: 10px; }
   .toast button { min-height: 40px; padding: 0 12px; border-radius: 12px; font-weight: 700; color: inherit; text-decoration: underline; text-underline-offset: 3px; }
-  @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(12px); } }
 
   /* ---- the movement chart: what the watch felt, with a numbered mark on each rep it counted ---- */
   .trace { position: relative; height: 150px; margin-top: 18px; color: var(--good); }
@@ -387,7 +392,7 @@
   .trend-top .n small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 5px; letter-spacing: 0; }
   .plot.small { height: 96px; }
   .bar.past { opacity: 0.45; }
-  @media (min-width: 900px) { .toast { bottom: 28px; } }
+  @media (min-width: 900px) { .toasts { bottom: 28px; } }
   @media (prefers-reduced-motion: reduce) { .chip.new, .toast { animation: none; } .stepper button:active { transform: none; } }
 </style>
 </head>
@@ -424,7 +429,7 @@
     <span>Watch</span>
   </button>
 </div></nav>
-<div class="toast" id="toast" role="status" hidden></div>
+<div class="toasts" id="toast" role="status"></div>
 
 <script>
 // The whole dashboard. It asks the server for workouts, progress and the watch's health,
@@ -435,6 +440,7 @@
 const REFRESH_MS = 4000;      // look for newly synced sets this often while the page is visible
 const NEW_FOR_MS = 120000;    // a set that just arrived is marked "New" for this long
 const TOAST_MS = 7000;        // how long a message at the bottom stays up
+const TOASTS_AT_ONCE = 3;     // more than this and the oldest gives way
 
 let workouts = [];            // newest first, as GET /workouts returned them
 let health = null;            // GET /watch/health
@@ -553,14 +559,22 @@ function drawStatus() {
   }
 }
 
-let toastTimer = 0;
-function toast(text, actionLabel, action) {
-  // A short message at the bottom that goes away by itself. It can carry one button, such as Undo.
-  toastEl.replaceChildren(el("span", {}, text));
-  if (actionLabel) toastEl.append(el("button", {onclick: () => { toastEl.hidden = true; action(); }}, actionLabel));
-  toastEl.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { toastEl.hidden = true; }, TOAST_MS);
+function toast(text, options) {
+  // A short message at the bottom that goes away by itself: what just happened, said where the eye already is.
+  //   tone   "good" (it worked, green tick) or "warn" (it didn't, orange mark); none for a plain remark
+  //   label, action   one button, such as Undo
+  //   key    a newer message with the same key replaces the older one, so tapping + five times leaves one message, not five
+  const {tone = "", label, action, key = text} = options || {};
+  for (const old of [...toastEl.children]) if (old.dataset.key === key) old.remove();
+  const node = el("div", {class: "toast " + tone},
+    ...(tone ? [el("span", {class: "ti"}, icon(tone === "good" ? "ok" : "warn", 16, 2.6))] : []),
+    el("span", {class: "tt"}, text));
+  node.dataset.key = key;
+  if (!tone) node.style.paddingLeft = "16px";
+  if (label) node.append(el("button", {onclick: () => { node.remove(); action(); }}, label));
+  toastEl.append(node);
+  while (toastEl.children.length > TOASTS_AT_ONCE) toastEl.firstElementChild.remove();
+  setTimeout(() => node.remove(), TOAST_MS);
 }
 
 function isNew(setId) {
@@ -900,7 +914,9 @@ function drawSet() {
       openSet = await response.json();
       await refresh();
       draw(true);
+      toast(labelOf(openSet.exercise) + ": " + plural(openSet.reps || 0, "rep") + " counted", {tone: "good", key: "exercise"});
     } catch (error) {
+      toast("Couldn't change the exercise", {tone: "warn", key: "exercise"});
       note.className = "note effort"; note.textContent = "Couldn't change it. Check the connection and try again.";
       select.value = set.exercise || "";
     }
@@ -910,18 +926,22 @@ function drawSet() {
   select.value = set.exercise || "";
 
   // One helper for every change on this screen: send it, show the answer, and say so if it didn't work.
-  const send = async (method, path, body, problemNote) => {
+  const send = async (method, path, body, problemNote, saved) => {
     try {
       openSet = await change(method, path, body);
       await refresh();
       draw(true);
+      toast(saved(openSet), {tone: "good", key: path});
       return true;
     } catch (error) {
+      toast("Couldn't save that", {tone: "warn", key: path});
       problemNote.className = "note effort"; problemNote.textContent = "Couldn't save that. Check the connection and try again.";
       return false;
     }
   };
   const here = "/sets/" + set.set_id;
+  const repsSaved = s => "Reps set to " + s.reps;
+  const weightSaved = s => s.weight ? "Weight saved: " + pounds(s.weight) : "Weight cleared";
 
   // The count. The counter can be wrong; the wearer has the last word, and the counter's number is kept beside theirs.
   const corrected = set.reps_fixed !== null && set.reps_fixed !== undefined;
@@ -932,11 +952,11 @@ function drawSet() {
   const repsCard = el("section", {class: "card", "data-rise": ""},
     el("div", {class: "field"}, el("span", {class: "lab", id: "reps-label"}, "Reps"),
       el("div", {class: "stepper", role: "group", "aria-labelledby": "reps-label"},
-        el("button", {"aria-label": "One fewer rep", onclick: () => { if (count > 0) send("PUT", here + "/reps", {reps: count - 1}, repsNote); }}, "−"),
+        el("button", {"aria-label": "One fewer rep", onclick: () => { if (count > 0) send("PUT", here + "/reps", {reps: count - 1}, repsNote, repsSaved); }}, "−"),
         el("span", {class: "now num", "aria-live": "polite"}, String(count)),
-        el("button", {"aria-label": "One more rep", onclick: () => send("PUT", here + "/reps", {reps: count + 1}, repsNote)}, "+"))),
+        el("button", {"aria-label": "One more rep", onclick: () => send("PUT", here + "/reps", {reps: count + 1}, repsNote, repsSaved)}, "+"))),
     repsNote,
-    ...(corrected ? [el("button", {class: "linkbtn", onclick: () => send("PUT", here + "/reps", {reps: null}, repsNote)}, "Use the counter's number")] : []));
+    ...(corrected ? [el("button", {class: "linkbtn", onclick: () => send("PUT", here + "/reps", {reps: null}, repsNote, s => "Back to the counter's number: " + (s.reps === null ? "none" : s.reps))}, "Use the counter's number")] : []));
 
   // The weight. Typed once; the next set of the same exercise is offered the same number with one tap.
   const weightNote = el("div", {class: "note", "aria-live": "polite"},
@@ -950,28 +970,29 @@ function drawSet() {
     if (value !== null && !(value > 0 && value <= 1000)) {
       weightNote.className = "note effort"; weightNote.textContent = "Enter a weight between 0.5 and 1000 lb."; return;
     }
-    send("PUT", here + "/weight", {weight: value}, weightNote);
+    send("PUT", here + "/weight", {weight: value}, weightNote, weightSaved);
   };
   weightInput.addEventListener("change", saveWeight);
   weightInput.addEventListener("keydown", event => { if (event.key === "Enter") weightInput.blur(); });
   const weightCard = el("section", {class: "card", "data-rise": ""},
     el("div", {class: "field"}, el("label", {for: "weight"}, "Weight"), el("div", {class: "weight"}, weightInput, el("span", {class: "muted"}, "lb"))),
     weightNote,
-    ...(!set.weight && set.last_weight ? [el("button", {class: "offer", onclick: () => send("PUT", here + "/weight", {weight: set.last_weight}, weightNote)},
+    ...(!set.weight && set.last_weight ? [el("button", {class: "offer", onclick: () => send("PUT", here + "/weight", {weight: set.last_weight}, weightNote, weightSaved)},
                                              "Same as last time: " + pounds(set.last_weight))] : []));
 
   // Removing. Nothing is deleted on the server, so it can be undone, and that is why there is no "are you sure?".
   const removeNote = el("div", {class: "note", "aria-live": "polite"});
   const restore = async () => {
-    try { await change("POST", here + "/restore"); await refresh(); draw(true); toast("Set put back"); }
-    catch (error) { toast("Couldn't put it back. Try again."); }
+    try { await change("POST", here + "/restore"); await refresh(); draw(true); toast("Set put back", {tone: "good", key: here}); }
+    catch (error) { toast("Couldn't put it back. Try again.", {tone: "warn", key: here}); }
   };
   const removeButton = el("button", {class: "danger", "data-rise": "", onclick: async () => {
     try {
       await change("DELETE", here);
       location.hash = "";
-      toast("Set removed", "Undo", restore);
+      toast("Set removed", {label: "Undo", action: restore, key: here});
     } catch (error) {
+      toast("Couldn't remove the set", {tone: "warn", key: here});
       removeNote.className = "note effort"; removeNote.textContent = "Couldn't remove it. Check the connection and try again.";
     }
   }}, "Remove this set");
@@ -1196,8 +1217,20 @@ function noticeNewSets() {
   let reps = 0, label = "";
   for (const w of workouts) for (const e of w.exercises) for (const s of e.sets)
     if (news.includes(s.set_id)) { reps += s.reps || 0; label = e.label; }
-  toast(news.length === 1 ? "New set: " + label + ", " + plural(reps, "rep")
-                          : plural(news.length, "new set") + ", " + plural(reps, "rep"));
+  const one = news.length === 1;
+  toast(one ? "New set: " + label + ", " + plural(reps, "rep") : plural(news.length, "new set") + ", " + plural(reps, "rep"),
+        {tone: "good", key: "new-set", ...(one ? {label: "Open", action: () => { location.hash = "set=" + news[0]; }} : {})});
+}
+
+let watchWas = null;          // the watch's status at the last answer, so a change can be announced once
+function noticeWatch() {
+  // The corner pill changes colour quietly; say it out loud the moment the watch's checks get better or worse.
+  const now = health && health.seen ? health.status : null;
+  if (watchWas !== null && now !== null && now !== watchWas) {
+    if (now === "ok") toast("Watch checks are all passing again", {tone: "good", key: "watch"});
+    else toast("The watch needs a look", {tone: "warn", key: "watch", label: "See", action: () => { location.hash = "watch"; }});
+  }
+  if (now !== null) watchWas = now;
 }
 
 async function refresh() {
@@ -1209,6 +1242,7 @@ async function refresh() {
       exercises.length ? exercises : getJson("/exercises")]);
     workouts = newWorkouts; health = newHealth; exercises = newExercises; progress = newProgress;
     noticeNewSets();
+    noticeWatch();
     loaded = true;
     if (where.screen === "set") {
       if (newSet === null) { location.hash = ""; return; }      // a set that doesn't exist: back to Today
@@ -1220,8 +1254,10 @@ async function refresh() {
         trace = {key, points: drawn.points, reps: drawn.reps, unit: drawn.unit};
       }
     }
+    if (serverDown) toast("Back in touch with the server", {tone: "good", key: "server"});
     serverDown = false;
   } catch (error) {
+    if (!serverDown && loaded) toast("Lost the server. Showing what was loaded.", {tone: "warn", key: "server"});
     serverDown = true;                                  // keep showing what we have
   }
   draw(false);
