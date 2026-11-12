@@ -360,6 +360,24 @@
   .cal .words .n { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
   .cal .words .n small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
 
+  /* ---- the headline on Today: a ring for the share of sets pushed hard, and what to do next time ---- */
+  .effort { display: flex; align-items: center; gap: 18px; }
+  .ring { position: relative; width: 124px; height: 124px; flex: none; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 11; }
+  .ring .track { stroke: var(--raised-2); }
+  .ring .arc { stroke: var(--effort); stroke-linecap: round; }
+  .ring .mid { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; line-height: 1; }
+  .ring .mid .num { font-size: 46px; font-weight: 700; letter-spacing: -0.03em; }
+  .ring .mid small { font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 4px; }
+  .view.enter .ring .arc { animation: ring 0.9s var(--ease) 0.15s both; }
+  @keyframes ring { from { stroke-dasharray: 0 100; } }
+  .effort .words { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .effort .title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+  .effort .say { font-size: 15px; line-height: 1.35; }
+  .hero .why { font-size: 12px; color: var(--muted); line-height: 1.35; margin-top: -6px; }
+  @media (min-width: 900px) { .ring { width: 140px; height: 140px; } .ring .mid .num { font-size: 52px; } }
+
   /* ---- progress ---- */
   .delta { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 13px; font-weight: 600;
            background: var(--raised); color: var(--muted); white-space: nowrap; }
@@ -415,7 +433,6 @@
 //   Progress: am I getting stronger?     Watch: is everything working?
 // The server does the thinking (counts, pace, suggestions, verdicts); this page only draws.
 const REFRESH_MS = 4000;      // look for newly synced sets this often while the page is visible
-const SLOWED_PCT = 25;        // a set whose last rep slowed this much is tinted
 const NEW_FOR_MS = 120000;    // a set that just arrived is marked "New" for this long
 const TOAST_MS = 7000;        // how long a message at the bottom stays up
 
@@ -662,6 +679,32 @@ function changeChip(change, than) {
        : el("span", {class: "delta"}, icon("stay", 13, 2.8), "Same as " + than);
 }
 
+function effortBlock(workout) {
+  // The headline. A total of reps adds unlike things (a pull-up is not a curl), so Today leads with what
+  // this watch measures that a counter can't: how many sets were pushed hard, and what to do about it.
+  const {pushed, judged} = workout.effort;
+  const number = el("span", {class: "num", "aria-hidden": "true"}, judged ? String(pushed) : "–");
+  const share = judged ? 100 * pushed / judged : 0;
+  const ring = el("div", {class: "ring", "aria-hidden": "true"},
+    svgEl("svg", {viewBox: "0 0 120 120"},
+      svgEl("circle", {class: "track", cx: 60, cy: 60, r: 52}),
+      ...(share ? [svgEl("circle", {class: "arc", cx: 60, cy: 60, r: 52, pathLength: 100, "stroke-dasharray": share.toFixed(1) + " 100"})] : [])),
+    el("div", {class: "mid"}, number, ...(judged ? [el("small", {}, "of " + judged)] : [])));
+  const title = !judged ? "Not enough to judge yet"
+              : pushed === 0 ? "No set pushed hard"
+              : (pushed === 1 ? "set" : "sets") + " pushed hard";
+  const spoken = judged ? pushed + " of " + plural(judged, "set") + " pushed hard" : title;
+  const node = el("div", {class: "effort", role: "group", "aria-label": spoken},
+    ring,
+    el("div", {class: "words"},
+      el("div", {class: "title"}, title),
+      ...(workout.advice ? [el("div", {class: "say"}, workout.advice)] : [])));
+  // What the number means, in one line under it: on a phone there is no room for it beside the ring.
+  const why = el("div", {class: "why"}, judged ? "Pushed hard: the last rep took at least 25% longer than your usual pace."
+                                               : "Effort shows up on sets of 3 reps or more.");
+  return {node, why, number, pushed, judged};
+}
+
 function timeline(workout) {
   // The workout laid out along time: a block for each set, as wide as the set was long. The gaps are rest.
   // Only for workouts whose sets know when they happened; uploaded-all-at-once sets would be one pile.
@@ -679,8 +722,7 @@ function timeline(workout) {
   return [el("div", {class: "chart", role: "img",
                      "aria-label": "The workout over time: " + clock(moving) + " of sets, longest rest " + clock(longest)},
     el("div", {class: "timeline"}, ...sets.map((s, i) => {
-      const slowed = s.slowdown_pct !== null && s.slowdown_pct >= SLOWED_PCT;
-      return el("i", {class: slowed ? "slowed" : "", style: "--c:" + Math.min(i, 14) + ";left:" + (100 * (s.from - start) / span).toFixed(2)
+      return el("i", {class: s.pushed ? "slowed" : "", style: "--c:" + Math.min(i, 14) + ";left:" + (100 * (s.from - start) / span).toFixed(2)
                                                           + "%;width:" + (100 * s.seconds / span).toFixed(2) + "%"});
     })),
     el("div", {class: "ends"}, el("span", {}, time(start)),
@@ -697,17 +739,19 @@ function drawToday() {
     return null;
   }
   const workout = workouts[Math.min(shown, workouts.length - 1)];
-  const big = bigNumber(workout.reps, workout.reps === 1 ? "rep" : "reps");
+  const effort = effortBlock(workout);
   const picked = workout.exercises.filter(e => e.exercise).length;
   const before = workouts[Math.min(shown, workouts.length - 1) + 1];      // the workout before this one, if there is one
   const hero = el("section", {class: "card hero a", "data-rise": ""},
     el("div", {class: "eyebrow"}, workoutTitle(workout)),
-    big.node,
-    ...(before ? [changeChip(workout.reps - before.reps, "the workout before")] : []),
+    effort.node,
+    effort.why,
     el("div", {class: "stats"},
+      stat(workout.reps, "", workout.reps === 1 ? "Rep" : "Reps"),
       stat(workout.sets, "", workout.sets === 1 ? "Set" : "Sets"),
       stat(picked, "", picked === 1 ? "Exercise" : "Exercises"),
-      ...(workout.timed ? [stat(workout.minutes, "min", "Start to finish")] : [])),
+      ...(workout.timed ? [stat(workout.minutes, "min", "Duration")] : [])),
+    ...(before ? [changeChip(workout.reps - before.reps, "the workout before")] : []),
     ...timeline(workout));
 
   let anySlowed = false;
@@ -718,11 +762,11 @@ function drawToday() {
         el("h2", {}, exercise.label),
         el("span", {class: "muted"}, plural(exercise.sets.length, "set") + " · " + plural(reps, "rep"))),
       el("div", {class: "chips"}, ...exercise.sets.map((set, i) => {
-        const slowed = set.slowdown_pct !== null && set.slowdown_pct >= SLOWED_PCT;
+        const slowed = set.pushed;                     // the server decides what "pushed hard" means
         anySlowed = anySlowed || slowed;
         const fresh = isNew(set.set_id);
         const spoken = (fresh ? "New. " : "") + "Set " + (i + 1) + ", " + (set.reps === null ? "not counted" : plural(set.reps, "rep"))
-                     + (set.weight ? ", " + pounds(set.weight) : "") + (slowed ? ", slowed at the end" : "");
+                     + (set.weight ? ", " + pounds(set.weight) : "") + (slowed ? ", pushed hard" : "");
         return el("button", {class: "chip" + (set.reps === null ? " unknown" : set.reps === 0 ? " none" : "") + (slowed ? " slowed" : "") + (fresh ? " new" : ""),
                              style: "--c:" + i, "aria-label": spoken, onclick: () => { location.hash = "set=" + set.set_id; }},
                   ...(fresh ? [el("span", {class: "tag"}, "New")] : []),
@@ -741,7 +785,7 @@ function drawToday() {
   });
   if (anySlowed) {
     cards.push(el("div", {class: "foot", "data-rise": ""}, icon("slowed", 16),
-      el("span", {}, "Marked sets slowed a lot on the last rep. Tap any set to see its pace.")));
+      el("span", {}, "Marked sets were pushed hard: the last rep slowed a lot. Tap any set to see why.")));
   }
   const parts = [hero, el("div", {class: "list b"}, ...cards)];
   if (workouts.length > 1) {
@@ -754,7 +798,7 @@ function drawToday() {
            icon("right", 18))))));
   }
   view.replaceChildren(el("div", {class: "cols today"}, ...parts));
-  return {node: big.number, value: workout.reps};
+  return effort.judged ? {node: effort.number, value: effort.pushed} : null;
 }
 
 function paceCard(set) {

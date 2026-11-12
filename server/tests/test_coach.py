@@ -151,3 +151,46 @@ def test_a_set_without_a_start_time_uses_when_it_arrived_and_says_so():
 
 def test_no_sets_no_workouts():
     assert coach.workouts([], LABELS) == []
+
+
+# ---- the headline: effort, not a total of reps
+
+STEADY = (1, 3, 5, 7, 9)            # every gap 2 s: no slowdown
+SLOWING = (1, 3, 5, 7, 9.6)         # the last gap is 2.6 s: 30% slower
+
+
+def test_a_set_whose_last_rep_slowed_a_quarter_or_more_was_pushed_hard():
+    rows = [row(1, "curl", 5, T0, STEADY), row(2, "curl", 5, T0 + 120, SLOWING),
+            row(3, "curl", 5, T0 + 240, (1, 3, 5, 7, 9.5))]         # exactly 25%
+    (w,) = coach.workouts(rows, LABELS)
+    assert [s["pushed"] for s in w["exercises"][0]["sets"]] == [False, True, True]
+    assert w["effort"] == {"pushed": 2, "judged": 3}
+
+
+def test_sets_too_short_to_judge_are_left_out_of_the_effort_count():
+    rows = [row(1, "curl", 5, T0, SLOWING), row(2, "curl", 2, T0 + 120, (1, 3)), row(3, "curl", 0, T0 + 240)]
+    (w,) = coach.workouts(rows, LABELS)
+    assert w["effort"] == {"pushed": 1, "judged": 1} and w["sets"] == 3
+
+
+def test_a_workout_with_nothing_to_judge_says_so_with_zero_judged():
+    (w,) = coach.workouts([row(1, "curl", 2, T0, (1, 3))], LABELS)
+    assert w["effort"] == {"pushed": 0, "judged": 0} and w["advice"] is None
+
+
+@pytest.mark.parametrize("kinds, sentence", [
+    (["more", "more", "less"], "Go heavier on 2 exercises and ease off on 1 exercise."),
+    (["more"], "Go heavier on 1 exercise next time."),
+    (["less", "stay", "less"], "Ease off on 2 exercises next time."),
+    (["stay", "stay"], "Stay at these weights next time."),
+    ([], None),
+])
+def test_the_advice_rolls_the_suggestions_into_one_sentence(kinds, sentence):
+    assert coach.advice(kinds) == sentence
+
+
+def test_the_workout_carries_the_advice_from_its_own_exercises():
+    rows = [row(1, "curl", 5, T0, STEADY), row(2, "curl", 5, T0 + 120, STEADY),         # steady and equal: more
+            row(3, "row", 5, T0 + 240, (1, 3, 5, 7, 11))]                              # slowed 100% on the first set: less
+    (w,) = coach.workouts(rows, LABELS)
+    assert w["advice"] == "Go heavier on 1 exercise and ease off on 1 exercise."

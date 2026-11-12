@@ -144,6 +144,12 @@ Sets less than 30 minutes apart are one workout. Newest first:
   page draws the workout as a strip of time from these). When the exercise's latest set has
   a weight, the suggestion names a number: "Try 27.5 lb next time." Steps
   are 2.5 lb below 50 lb and 5 lb from there up.
+- `effort` is the headline: `{"pushed": 3, "judged": 8}`. A set is pushed
+  hard when its last rep took at least 25% longer than its usual pace
+  (`PUSHED_PCT`); each set carries `pushed` too. Sets under three reps can't be
+  judged and are left out of both numbers. `advice` rolls the exercises'
+  suggestions into one sentence ("Go heavier on 2 exercises and ease off on 1
+  exercise."), or null.
 - `suggestion` is null with too little to go on. The rules are in `coach.py`
   and in PLAN.md, "Suggestions". Nothing here is stored: it is worked out from
   the rows on every request, so the rules can change without touching data.

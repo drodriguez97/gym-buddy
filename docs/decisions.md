@@ -199,3 +199,19 @@ exercise in the dashboard) predate this log and are summarised first.
   between sets. The end of the rest window (five quiet minutes) is the one
   moment nobody is waiting on the watch. One try only, and a failure is
   silent: no Wi-Fi at the gym is normal, and hold B still works at home.
+- **Today leads with effort, not a total of reps (2026-11-11).** "46 reps"
+  adds unlike things: six pull-ups and six curls are not the same work, and
+  any counter can give a total. What this watch measures that a counter can't
+  is how much each set slowed by its last rep. So the headline is "3 of 8 sets
+  pushed hard" with one sentence of advice; reps, sets, exercises and minutes
+  are the small numbers under it. Three things were looked at first. Fitbit's
+  2025 redesign and others put one focal number on top with three beside it,
+  and are moving from numbers to guidance. WHOOP rolls everything into one
+  score (Strain), which nobody can check by hand; "3 of 8 sets" can be
+  explained in a sentence, so no invented score. Strength logs (Hevy, Strong)
+  lead with volume, sets and duration; volume needs a weight on every set, so
+  it waits. The 25% line is not arbitrary: in velocity-based training a set is
+  ended at a chosen loss of speed, and studies split thresholds at about 25%
+  (lower favours strength, higher favours muscle growth). Ours is a rougher
+  cousin: rep time on the wrist, not bar speed, and how many reps were left
+  at a given loss differs from person to person.

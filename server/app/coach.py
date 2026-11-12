@@ -10,6 +10,7 @@ WORKOUT_GAP_S = 30 * 60     # sets further apart than this belong to different w
 STEADY_PCT = 10             # a set that slows less than this is "steady"
 HARD_PCT = 25               # a first set that slows more than this was too heavy from the start
 REPS_FELL = 0.6             # the last set has under 60% of the first set's reps: reps fell sharply
+PUSHED_PCT = 25             # a set whose last rep slowed this much was pushed hard (close to what you had in you)
 
 SUGGESTIONS = {
     "more": "That looked easy. Try a little more weight next time.",
@@ -116,14 +117,16 @@ def workouts(rows, labels):
                          "label": labels.get(row["exercise"], row["exercise"] or "No exercise picked"),
                          "sets": []}
                 exercises.append(entry)
+            slowdown = pace(row["rep_times"])["slowdown_pct"]
             entry["sets"].append({"set_id": row["set_id"], "reps": row["reps"],
-                                  "slowdown_pct": pace(row["rep_times"])["slowdown_pct"],
+                                  "slowdown_pct": slowdown, "pushed": slowdown is not None and slowdown >= PUSHED_PCT,
                                   "weight": row.get("weight"), "at": iso(when(row)),
                                   "seconds": round(row["duration_ms"] / 1000)})
         for entry in exercises:
             kind = suggest(entry["sets"]) if entry["exercise"] else None
             weights = [s["weight"] for s in entry["sets"] if s["weight"]]
             entry["suggestion"] = {"kind": kind, "text": sentence(kind, weights[-1] if weights else None)} if kind else None
+        every = [s for entry in exercises for s in entry["sets"]]
         start = when(group[0])
         end = when(group[-1]) + group[-1]["duration_ms"] // 1000
         result.append({
@@ -132,9 +135,30 @@ def workouts(rows, labels):
             "timed": all(row.get("started_at") for row in group),   # False: times are when the sets were synced
             "sets": len(group),
             "reps": sum(row["reps"] or 0 for row in group),
+            # The headline: how many sets were pushed hard, out of those long enough to judge (3 reps or more).
+            "effort": {"pushed": sum(s["pushed"] for s in every),
+                       "judged": sum(s["slowdown_pct"] is not None for s in every)},
+            "advice": advice([entry["suggestion"]["kind"] for entry in exercises if entry["suggestion"]]),
             "exercises": exercises,
         })
     return result
+
+
+def advice(kinds):
+    """The exercises' suggestions rolled into one sentence for the top of the workout, or None with nothing to say.
+
+    kinds: the "more" / "stay" / "less" of each exercise that has a suggestion.
+    """
+    def some(n):
+        return "%d exercise%s" % (n, "" if n == 1 else "s")
+    more, less = kinds.count("more"), kinds.count("less")
+    if more and less:
+        return "Go heavier on %s and ease off on %s." % (some(more), some(less))
+    if more:
+        return "Go heavier on %s next time." % some(more)
+    if less:
+        return "Ease off on %s next time." % some(less)
+    return "Stay at these weights next time." if kinds else None
 
 
 def progress(rows, labels):
