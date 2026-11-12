@@ -23,7 +23,7 @@ PASSWORD = os.environ.get("GYM_BUDDY_PASSWORD", "")         # the dashboard asks
 SET_DIR = Path(os.environ.get("GYM_BUDDY_DATA", "data/sets"))
 SET_ID = re.compile(r"^\d{5}-[0-9a-f]{6}$")     # e.g. 00004-a956cd, nothing else
 BYTES_PER_READING = 12                          # 6 int16s: accel xyz, gyro xyz
-ANALYSIS_VERSION = 1                            # raise when count_reps changes, so old rows can be found and recounted
+ANALYSIS_VERSION = 2                            # raise when count_reps changes, so old rows can be found and recounted
 PAGES = Path(__file__).parent / "static"
 # Sent with both pages: "ask me before reusing your saved copy". Without it a
 # phone can keep showing the old page after an update (seen 2026-11-11).

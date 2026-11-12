@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.analysis import count_reps, describe_set, load_set
+from app.analysis import count_reps, describe_set, edge_reps, gap_reps, load_set
 
 RATE = 100
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -215,4 +215,96 @@ def test_recofit_floors():
             peaks, _, _ = count_reps(accel, meta["rate_hz"], gyro, exercise=exercise)
             within.setdefault(row["exercise"], []).append(abs(len(peaks) - int(row["true_reps"])) <= 1)
     below = {ex: f"{np.mean(v):.0%} < {FLOORS[ex]:.0%}" for ex, v in within.items() if np.mean(v) < FLOORS[ex]}
+    assert not below, f"below the floor: {below}"
+
+
+def press_like(reps, small_last=False):
+    """One second at rest, `reps` tops two seconds apart with deep dips between, one second at rest.
+
+    The rest level sits only 0.25 g under the tops, so the first and last top
+    have a deep dip on one side only, like the first and last rep of a press.
+    """
+    t = np.arange(0, 2 * (reps - 1), 1 / RATE)
+    wave = 0.5 * np.cos(2 * np.pi * t / 2.0)
+    if small_last:
+        wave[-RATE // 2:] = np.minimum(wave[-RATE // 2:], 0.0)     # the last top never happens
+    rest = np.full(RATE, 0.25)
+    return np.concatenate([rest, wave, [0.5 if not small_last else 0.0], rest])
+
+
+def test_first_and_last_rep_have_a_dip_on_one_side_only_and_still_count():
+    from scipy.signal import find_peaks
+    y = press_like(6)
+    strict, _ = find_peaks(y, prominence=0.3, distance=RATE)
+    assert len(strict) == 4                                   # the usual test drops both ends
+    assert len(edge_reps(y, strict, 0.3, 0.6)) == 6
+
+
+def test_edge_reps_adds_nothing_where_there_is_no_rep():
+    from scipy.signal import find_peaks
+    y = press_like(6, small_last=True)
+    strict, _ = find_peaks(y, prominence=0.3, distance=RATE)
+    found = edge_reps(y, strict, 0.3, 0.6)
+    assert len(found) == len(strict) + 1                      # the first rep comes back, the missing last one doesn't
+    assert found[0] < strict[0] and found[-1] == strict[-1]
+
+
+def test_edge_reps_needs_two_reps_to_know_the_pace():
+    assert list(edge_reps(press_like(6), np.array([300]), 0.3, 0.6)) == [300]
+
+
+def shallow_dip_set():
+    """Seven tops two seconds apart; the dip after the fourth is shallow, so the fourth top barely stands clear."""
+    t = np.arange(0, 14, 1 / RATE)
+    y = 0.5 * np.cos(2 * np.pi * (t - 1) / 2.0)
+    y[(t > 6.5) & (t < 7.5)] *= 0.9                                    # and it is a touch lower than its neighbours
+    y[(t > 7) & (t < 9)] = np.maximum(y[(t > 7) & (t < 9)], 0.3)      # the weight wasn't lowered all the way
+    return t, y
+
+
+def test_a_rep_hidden_by_a_shallow_dip_is_found_where_one_is_due():
+    from scipy.signal import find_peaks
+    t, y = shallow_dip_set()
+    strict, _ = find_peaks(y, prominence=0.3, distance=RATE)
+    assert len(strict) == 6                                   # a two-rep hole in the middle
+    found = gap_reps(y, strict, RATE, 0.3, 0.6)
+    assert len(found) == 7 and np.all(np.diff(found) < 2.6 * RATE)
+
+
+def test_gap_reps_adds_nothing_to_an_even_set():
+    from scipy.signal import find_peaks
+    t = np.arange(0, 14, 1 / RATE)
+    y = 0.5 * np.cos(2 * np.pi * (t - 1) / 2.0) + 0.1 * np.sin(2 * np.pi * 3 * t)   # reps with a fast ripple on top
+    strict, _ = find_peaks(y, prominence=0.3, distance=RATE)
+    assert list(gap_reps(y, strict, RATE, 0.3, 0.6)) == list(strict)
+
+
+def test_a_long_pause_between_reps_is_not_filled_with_a_small_bump():
+    from scipy.signal import find_peaks
+    t = np.arange(0, 18, 1 / RATE)
+    y = 0.5 * np.cos(2 * np.pi * (t - 1) / 2.0)
+    pause = (t > 6) & (t < 10)
+    y[pause] = -0.5 + 0.12 * np.exp(-((t[pause] - 8) / 0.3) ** 2)      # resting low, one small twitch
+    strict, _ = find_peaks(y, prominence=0.3, distance=RATE)
+    assert list(gap_reps(y, strict, RATE, 0.3, 0.6)) == list(strict)
+
+
+# The same idea on MM-Fit: 21 workouts, a watch on each wrist, 1,224 labeled
+# sets (scripts/import_mmfit.py). Floors are a little under where the analyzer
+# stood on 2026-11-12, as the share of sets counted within one rep.
+MMFIT = Path(__file__).parents[2] / "recordings" / "mmfit" / "sets"
+MMFIT_FLOORS = {"curl": 0.95, "row": 0.95, "triceps_overhead": 0.95, "lateral_raise": 0.95, "situp": 0.90,
+                "squat": 0.85, "pushup": 0.80, "shoulder_press": 0.75, "lunge": 0.70, "jumping_jacks": 0.70}
+
+
+@pytest.mark.benchmark
+@pytest.mark.skipif(not (MMFIT / "labels.csv").exists(), reason="run scripts/import_mmfit.py first")
+def test_mmfit_floors():
+    within = {}
+    with open(MMFIT / "labels.csv", newline="") as f:
+        for row in csv.DictReader(f):
+            meta, _, accel, gyro = load_set(MMFIT / f"{row['set_id']}.bin")
+            peaks, _, _ = count_reps(accel, meta["rate_hz"], gyro, exercise=row["exercise"])
+            within.setdefault(row["exercise"], []).append(abs(len(peaks) - int(row["true_reps"])) <= 1)
+    below = {ex: f"{np.mean(v):.0%} < {MMFIT_FLOORS[ex]:.0%}" for ex, v in within.items() if np.mean(v) < MMFIT_FLOORS[ex]}
     assert not below, f"below the floor: {below}"

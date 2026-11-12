@@ -126,7 +126,7 @@ def test_an_uploaded_set_gets_a_row_with_its_count_and_rep_times():
     assert row["reps"] == 6 and row["exercise"] == "curl"
     assert row["rep_times"] == [4.7, 7.32, 9.73, 12.07, 14.8, 17.61]
     assert row["duration_ms"] == SET_META["duration_ms"] and row["late"] == SET_META["late"]
-    assert row["analysis_version"] == 1 and row["received_at"]
+    assert row["analysis_version"] == 2 and row["received_at"]
 
 
 def test_uploading_twice_keeps_one_row_and_the_first_count():

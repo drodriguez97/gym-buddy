@@ -13,3 +13,6 @@ __pycache__/
 # Secrets: Wi-Fi password and upload token (commit config.example.py instead)
 watch/config.py
 .env
+
+# Public datasets downloaded for benchmarking (large; import scripts recreate what the tests need)
+recordings/mmfit/

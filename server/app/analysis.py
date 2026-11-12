@@ -187,6 +187,9 @@ def count_anchored(gyro, rate_hz, accel=None, min_prominence_deg=8, min_rep_s=0.
     if len(peaks) and min_lift:
         lift = angle[peaks] - np.median(angle)
         peaks = peaks[lift >= min_lift * np.median(lift)]
+    peaks = edge_reps(angle, peaks, min_prominence_deg, min_lift)      # the first and last rep, as in count_reps
+    if moving is not None and len(peaks):
+        peaks = peaks[~moving[peaks]]
     return peaks
 
 
@@ -252,6 +255,83 @@ def describe_set(accel, rate_hz, gyro=None, trim=True, exercise=None, **kw):
                 seconds=seconds, kind=kind, start=start, end=end, axis=axis, **th)
 
 
+def gap_reps(y, peaks, rate_hz, min_prominence, min_lift, wide=1.6, near=0.6, weaker=0.5):
+    """Add a rep in the middle of a set that the usual test wrongly drops.
+
+    Sometimes the dip between two reps is shallow (the weight isn't lowered
+    all the way, or the wearer pauses), so a top that rises as high as the
+    others doesn't stand min_prominence clear and is skipped. That leaves a
+    hole about two reps long between its neighbours.
+
+    So where two counted reps are more than `wide` rep-lengths apart, a top
+    between them counts if it rises like the other reps (min_lift), stands
+    at least `weaker` x min_prominence clear, and is at least `near`
+    rep-lengths from every rep already counted. The timing is the evidence:
+    a weak top is only believed where a rep is due.
+    """
+    if len(peaks) < 3:
+        return peaks
+    level = np.median(y)
+    lift = np.median(y[peaks] - level)
+    period = float(np.median(np.diff(peaks)))
+    weak, _ = find_peaks(y, prominence=weaker * min_prominence, distance=max(1, int(near * period)))
+    found = list(peaks)
+    for i in weak:
+        left = max((p for p in found if p < i), default=None)
+        right = min((p for p in found if p > i), default=None)
+        if left is None or right is None or i in found:
+            continue                                  # the ends are edge_reps' job
+        if right - left < wide * period or min(i - left, right - i) < near * period:
+            continue
+        if y[i] - level >= min_lift * lift:
+            found.append(i)
+            found.sort()
+    return np.array(found)
+
+
+def edge_reps(y, peaks, min_prominence, min_lift, tolerance=0.35):
+    """Add the first and last rep when the usual test wrongly drops them.
+
+    A rep counts when its top stands min_prominence clear of the dips on BOTH
+    sides. The first rep starts from rest and the last one ends in rest, so
+    each has a real dip on one side only and often fails that test, which
+    left the count one short (157 of RecoFit's 562 exercise sets).
+
+    So step outward from the first and last counted rep, one rep-length at a
+    time. If the highest point about one rep-length away (within tolerance)
+    is a real top, rises like the other reps (min_lift) and stands
+    min_prominence clear of the dip on its inner side, it is a rep. Stops at
+    the first step that finds none. Only looks inside y, which is the trimmed
+    window: reaching past it counts picking the weights up as reps.
+    """
+    if len(peaks) < 2:
+        return peaks
+    level = np.median(y)
+    lift = np.median(y[peaks] - level)
+    period = float(np.median(np.diff(peaks)))        # readings per rep, from the reps already found
+    reach = int(period)
+    peaks = list(peaks)
+    for sign in (-1, 1):                             # -1: before the first rep, +1: after the last
+        while True:
+            anchor = peaks[0] if sign < 0 else peaks[-1]
+            lo, hi = sorted((anchor + sign * int((1 - tolerance) * period),
+                             anchor + sign * int((1 + tolerance) * period)))
+            lo, hi = max(lo, 0), min(hi, len(y) - 1)
+            if hi - lo < 3:
+                break
+            i = lo + int(np.argmax(y[lo:hi + 1]))
+            if i in (lo, hi):
+                break                                # highest at the border of the search: a slope, not a top
+            inner = y[i:i + reach + 1] if sign < 0 else y[max(0, i - reach):i + 1]
+            if y[i] - level < min_lift * lift or y[i] - inner.min() < min_prominence:
+                break
+            if sign < 0:
+                peaks.insert(0, i)
+            else:
+                peaks.append(i)
+    return np.array(peaks)
+
+
 def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
                exercise=None, min_prominence=0.3, min_rep_s=0.3, min_lift=0.6, **thresholds):
     """Find the top of each rep. Returns (peak indexes, smoothed signal, axis used).
@@ -271,6 +351,8 @@ def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
     trim: ignore the start and end where the watch faces you (see active_window).
     min_lift: drop a top that rises less than this share of a typical rep,
         e.g. the bump from getting into position before the first rep.
+    Weak tops get a second look afterwards where a rep is due: in a hole
+    between two reps (gap_reps) and before the first / after the last (edge_reps).
     Peak indexes count from the start of the whole set, so they line up with t.
     """
     info = describe_set(accel, rate_hz, gyro, trim, exercise, **thresholds)
@@ -304,6 +386,8 @@ def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
     if len(peaks) and min_lift:
         lift = y[peaks] - np.median(y)
         peaks = peaks[lift >= min_lift * np.median(lift)]
+    peaks = gap_reps(y, peaks, rate_hz, min_prominence, min_lift)
+    peaks = edge_reps(y, peaks, min_prominence, min_lift)
     return peaks + start, sig, axis
 
 

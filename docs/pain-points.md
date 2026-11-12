@@ -15,7 +15,7 @@ decisions.md; the evidence is in presentation/README.md.
   wall charger.
 - **Sets 30 and 44 have no known rep count.** 44 is a curl counted as 3 with
   an irregular recording; 30 has no exercise.
-- **Presses on the forearm.** On RecoFit's forearm data, shoulder press (53%),
+- **Presses on the forearm.** (2026-11-12: now 80%, 65% and 39% after the edge and gap rules.) On RecoFit's forearm data, shoulder press (53%),
   chest press on the rack (39%) and dips (35%) are still far below the 93%
   benchmark even when told the exercise. The forearm travels less than the wrist,
   so the rep bumps are small and `min_prominence=0.3 g` throws them out. Not a

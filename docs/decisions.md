@@ -215,3 +215,32 @@ exercise in the dashboard) predate this log and are summarised first.
   (lower favours strength, higher favours muscle growth). Ours is a rougher
   cousin: rep time on the wrist, not bar speed, and how many reps were left
   at a given loss differs from person to person.
+- **A weak top counts where a rep is due (2026-11-12).** Dan noticed shoulder
+  press was often one rep short. RecoFit agreed: exactly one short on 157 of
+  its 562 exercise sets, almost never one over. Cause: a top only counted if
+  it stood 0.3 g clear of the dips on both sides. The first rep starts from
+  rest and the last ends in rest (a dip on one side only), and mid-set a
+  shallow dip hides a full-height rep. Three changes, all using timing as the
+  evidence: `edge_reps` steps one rep-length out from the first and last
+  counted rep and accepts a top judged on its inner side; `gap_reps` accepts
+  a half-prominence top inside a hole two reps long; `count_anchored` runs
+  `edge_reps` on the wrist angle too. Tried first and rejected: reaching past
+  the trimmed window. It helped RecoFit but turned six of Dan's correct 6s
+  into 8s and 9s, because lifting the dumbbells into position looks like a
+  rep. Results (exact / within one rep): Dan's 20 labeled sets 100% before
+  and after; RecoFit 57% / 79% -> 65% / 83%, shoulder press 29% / 53% ->
+  53% / 80%; MM-Fit 42% / 84% -> 65% / 90%, shoulder press 18% / 53% ->
+  50% / 81%, push-ups 16% -> 47% exact. Cost: RecoFit kettlebell swings
+  81% -> 75% exact (still 100% within one), and rest or walking sets that
+  were already miscounted gain a rep or two. `ANALYSIS_VERSION` is now 2.
+- **MM-Fit as a second outside data set (2026-11-12).** RecoFit is a forearm
+  band at 50 Hz; MM-Fit is a smartwatch on each wrist at about 100 Hz, which
+  is our placement and rate. 21 workouts, ten exercises, 1,224 sets after
+  import (`scripts/import_mmfit.py`), each with a labeled rep count. Its
+  bicep curls alternate arms and the label counts both, so each wrist gets
+  half. Its sets are cut tight around the reps, with no lead-in, so it says
+  nothing about the trim. No data license is stated on its page, so it is
+  downloaded, not committed (`recordings/mmfit/` is ignored). Other sets
+  looked at and not used: Soro et al. CrossFit (reps paced by a vibration
+  cue), GYMU (login needed, no shoulder press), RecGym and WEAR (too slow or
+  no rep counts). Benchmark floors: `python -m pytest -m benchmark`.
