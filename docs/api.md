@@ -80,6 +80,18 @@ The `.json` the watch sends:
   another set, which the page offers with one tap.
   404 if unknown or not shaped like a set ID.
 
+## GET /sets/{id}/trace (the Movement chart)
+
+What the watch felt during the set, ready to draw:
+
+    {"points": [[0.0, 0.12], [0.08, 0.15], ...], "reps": [2.31, 4.64, ...], "unit": "g"}
+
+`points` is the smoothed signal the counter looked at, thinned to about 240
+`[seconds, value]` pairs. `unit` is `g` (movement) for most exercises and
+`degrees` (wrist angle) for pull-ups and push-ups, which are counted that way. `reps` is the moment of each rep it found. Worked out
+from the raw file on every request, never stored. 404 for an unknown set or
+one whose recording can't be read.
+
 ## PUT /sets/{id}/exercise
 
 Body `{"exercise": "pullup"}`. Corrects a wrong pick and recounts from the raw
@@ -128,7 +140,8 @@ Sets less than 30 minutes apart are one workout. Newest first:
 
 - A set's time is `started_at`, or when it was received if the watch didn't
   know the time. `timed` is false when any set in the workout used the fallback.
-- Each set also carries `weight` and `at`. When the exercise's latest set has
+- Each set also carries `weight`, `at` and `seconds` (how long it lasted; the
+  page draws the workout as a strip of time from these). When the exercise's latest set has
   a weight, the suggestion names a number: "Try 27.5 lb next time." Steps
   are 2.5 lb below 50 lb and 5 lb from there up.
 - `suggestion` is null with too little to go on. The rules are in `coach.py`

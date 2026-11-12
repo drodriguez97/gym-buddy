@@ -237,3 +237,66 @@ def test_progress_over_the_api_uses_corrected_counts_and_skips_removed_sets():
     client.delete(f"/sets/{CURL_B}")
     curl = client.get("/progress").json()[0]
     assert [w["reps"] for w in curl["workouts"]] == [6] and curl["change"] is None
+
+
+# ---- the movement chart
+
+def test_the_trace_is_a_thinned_out_line_with_the_reps_the_counter_found():
+    upload(CURL_A)
+    trace = client.get(f"/sets/{CURL_A}/trace").json()
+    times = [t for t, _ in trace["points"]]
+    assert 100 <= len(times) <= 260                     # a line, not thousands of readings
+    assert times == sorted(times) and times[0] == 0
+    assert abs(times[-1] - one()["duration_ms"] / 1000) < 1
+    assert all(-4 < g < 4 for _, g in trace["points"])      # in g: a wrist never reads more
+    assert trace["reps"] == one()["rep_times"] and len(trace["reps"]) == 6
+    assert all(0 <= t <= times[-1] for t in trace["reps"])
+
+
+def test_each_counted_rep_sits_on_a_bump_of_the_line():
+    # A curl's top is where the signal is furthest from its middle: the marks must land there, not in between.
+    upload(CURL_A)
+    trace = client.get(f"/sets/{CURL_A}/trace").json()
+    values = [g for _, g in trace["points"]]
+    middle = sorted(values)[len(values) // 2]
+    swing = max(abs(g - middle) for g in values)
+    for rep in trace["reps"]:
+        nearest = min(trace["points"], key=lambda point: abs(point[0] - rep))
+        assert abs(nearest[1] - middle) > 0.3 * swing
+
+
+def test_the_trace_of_an_unknown_set_is_not_found():
+    assert client.get(f"/sets/{UNKNOWN}/trace").status_code == 404
+    assert client.get("/sets/..%2Fx/trace").status_code == 404
+
+
+def test_a_set_whose_recording_is_gone_has_no_trace_but_still_opens(tmp_path):
+    upload(CURL_A)
+    (tmp_path / "sets" / f"{CURL_A}.bin").unlink()
+    assert client.get(f"/sets/{CURL_A}/trace").status_code == 404
+    assert client.get(f"/sets/{CURL_A}").status_code == 200
+
+
+def test_each_set_in_a_workout_says_how_long_it_lasted():
+    upload(CURL_A, started_at=T0)
+    entry = client.get("/workouts").json()[0]["exercises"][0]["sets"][0]
+    assert entry["seconds"] == round(one()["duration_ms"] / 1000)
+
+
+def test_a_pull_up_is_drawn_as_the_wrist_angle_it_was_counted_on():
+    # The hand is anchored, so the accelerometer line is nearly flat. The marks must sit on the angle's hills.
+    pull_up = "00018-f6719e"
+    meta = json.loads((FIXTURES / f"{pull_up}.json").read_text())
+    client.post("/sets", content=(FIXTURES / f"{pull_up}.bin").read_bytes(),
+                headers={"X-Token": "dev-token", "X-Set-Meta": json.dumps({**meta, "exercise": "pullup"})})
+    trace = client.get(f"/sets/{pull_up}/trace").json()
+    assert trace["unit"] == "degrees" and len(trace["reps"]) == 6
+    values = [v for _, v in trace["points"]]
+    for rep in trace["reps"]:
+        nearest = min(trace["points"], key=lambda point: abs(point[0] - rep))
+        assert nearest[1] > 0.3 * max(values)
+
+
+def test_a_curl_is_drawn_in_g():
+    upload(CURL_A)
+    assert client.get(f"/sets/{CURL_A}/trace").json()["unit"] == "g"

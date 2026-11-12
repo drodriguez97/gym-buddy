@@ -324,6 +324,42 @@
   .toast button { min-height: 40px; padding: 0 12px; border-radius: 12px; font-weight: 700; color: inherit; text-decoration: underline; text-underline-offset: 3px; }
   @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
 
+  /* ---- the movement chart: what the watch felt, with a numbered mark on each rep it counted ---- */
+  .trace { position: relative; height: 150px; margin-top: 18px; color: var(--good); }
+  .trace svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .trace .line { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .trace .area { fill: currentColor; opacity: 0.13; stroke: none; }
+  .rep-dot { position: absolute; width: 22px; height: 22px; margin: 0 0 -11px -11px; border-radius: 50%; display: grid; place-items: center;
+             background: var(--text); color: var(--card); font-size: 11px; font-weight: 700; line-height: 1;
+             box-shadow: 0 0 0 3px var(--card); font-variant-numeric: tabular-nums; }
+  .rep-dot.small { width: 10px; height: 10px; margin: 0 0 -5px -5px; box-shadow: 0 0 0 2px var(--card); }
+  .view.enter .rep-dot { animation: pop 0.35s var(--ease) both; animation-delay: calc(var(--c, 0) * 60ms + 350ms); }
+  .ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 8px; }
+
+  /* ---- the workout as a strip of time: a block for each set, the gaps between are rest ---- */
+  .timeline { position: relative; height: 26px; border-radius: 8px; background: var(--raised); overflow: hidden; }
+  .timeline i { position: absolute; top: 5px; bottom: 5px; min-width: 4px; border-radius: 3px; background: var(--good); opacity: var(--bar-dim); }
+  .timeline i.slowed { background: var(--effort); }
+  .view.enter .timeline i { animation: grow-x 0.5s var(--ease) both; animation-delay: calc(var(--c, 0) * 35ms + 250ms); transform-origin: left; }
+  @keyframes grow-x { from { transform: scaleX(0); opacity: 0; } }
+  .hero .delta { align-self: flex-start; margin-top: -6px; }
+
+  /* ---- the last four weeks as a small calendar: a filled square for each day with a workout ---- */
+  .cal { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; }
+  .weeks { flex: 0 1 300px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+  .weeks .wd { font-size: 11px; color: var(--muted); text-align: center; padding-bottom: 2px; }
+  .day { aspect-ratio: 1; border-radius: 10px; background: var(--raised); display: grid; place-items: center;
+         font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; transition: transform 0.15s var(--ease); }
+  .day.on { background: var(--good-bg); color: var(--good-text); font-weight: 700; }
+  .day.on.big { background: var(--good); color: var(--on-good); }
+  .day.today { box-shadow: inset 0 0 0 2px var(--text); }
+  .day.later { opacity: 0.35; }
+  button.day:active { transform: scale(0.92); }
+  .view.enter .day.on { animation: pop 0.35s var(--ease) both; animation-delay: calc(var(--c, 0) * 60ms + 250ms); }
+  .cal .words { flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px; }
+  .cal .words .n { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+  .cal .words .n small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+
   /* ---- progress ---- */
   .delta { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 13px; font-weight: 600;
            background: var(--raised); color: var(--muted); white-space: nowrap; }
@@ -395,6 +431,7 @@ let loaded = false;           // has the server answered at least once?
 let lastScene = "";           // which screen was last drawn, so things only ease in when the screen changes
 let heroWas = null;           // the big number last shown, so a changed count rolls from the old value
 let progress = [];            // GET /progress: each exercise across workouts
+let trace = null;             // GET /sets/{id}/trace for the open set: {key, points, reps}, or {key} if it has none
 let knownSets = null;         // the set IDs seen so far; null until the first answer, so nothing is "new" on opening the page
 const arrived = new Map();    // set ID -> when it first showed up while the page was open
 
@@ -618,6 +655,38 @@ function steps(...lines) {
     el("div", {class: "step"}, el("span", {class: "n", "aria-hidden": "true"}, String(i + 1)), el("span", {}, line))));
 }
 
+function changeChip(change, than) {
+  // "3 more reps than last time", green when it went up. The same chip on Today and on Progress.
+  return change > 0 ? el("span", {class: "delta up"}, icon("more", 13, 2.8), plural(change, "more rep") + " than " + than)
+       : change < 0 ? el("span", {class: "delta"}, icon("less", 13, 2.8), plural(-change, "fewer rep") + " than " + than)
+       : el("span", {class: "delta"}, icon("stay", 13, 2.8), "Same as " + than);
+}
+
+function timeline(workout) {
+  // The workout laid out along time: a block for each set, as wide as the set was long. The gaps are rest.
+  // Only for workouts whose sets know when they happened; uploaded-all-at-once sets would be one pile.
+  const sets = workout.exercises.flatMap(e => e.sets).map(s => ({...s, from: new Date(s.at).getTime() / 1000}));
+  if (!workout.timed || sets.length < 2) return [];
+  sets.sort((a, b) => a.from - b.from);
+  const start = sets[0].from, last = sets[sets.length - 1];
+  const span = last.from + last.seconds - start;
+  if (span <= 0) return [];
+  const moving = sets.reduce((sum, s) => sum + s.seconds, 0);
+  let longest = 0;
+  for (let i = 1; i < sets.length; i++) longest = Math.max(longest, sets[i].from - (sets[i - 1].from + sets[i - 1].seconds));
+  const clock = seconds => seconds < 60 ? Math.round(seconds) + " s" : Math.round(seconds / 60) + " min";
+  const time = seconds => new Date(seconds * 1000).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+  return [el("div", {class: "chart", role: "img",
+                     "aria-label": "The workout over time: " + clock(moving) + " of sets, longest rest " + clock(longest)},
+    el("div", {class: "timeline"}, ...sets.map((s, i) => {
+      const slowed = s.slowdown_pct !== null && s.slowdown_pct >= SLOWED_PCT;
+      return el("i", {class: slowed ? "slowed" : "", style: "--c:" + Math.min(i, 14) + ";left:" + (100 * (s.from - start) / span).toFixed(2)
+                                                          + "%;width:" + (100 * s.seconds / span).toFixed(2) + "%"});
+    })),
+    el("div", {class: "ends"}, el("span", {}, time(start)),
+       el("span", {}, clock(moving) + " moving · longest rest " + clock(longest)), el("span", {}, time(start + span))))];
+}
+
 function drawToday() {
   if (!workouts.length) {
     view.replaceChildren(el("div", {class: "empty", "data-rise": ""},
@@ -630,13 +699,16 @@ function drawToday() {
   const workout = workouts[Math.min(shown, workouts.length - 1)];
   const big = bigNumber(workout.reps, workout.reps === 1 ? "rep" : "reps");
   const picked = workout.exercises.filter(e => e.exercise).length;
+  const before = workouts[Math.min(shown, workouts.length - 1) + 1];      // the workout before this one, if there is one
   const hero = el("section", {class: "card hero a", "data-rise": ""},
     el("div", {class: "eyebrow"}, workoutTitle(workout)),
     big.node,
+    ...(before ? [changeChip(workout.reps - before.reps, "the workout before")] : []),
     el("div", {class: "stats"},
       stat(workout.sets, "", workout.sets === 1 ? "Set" : "Sets"),
       stat(picked, "", picked === 1 ? "Exercise" : "Exercises"),
-      ...(workout.timed ? [stat(workout.minutes, "min", "Start to finish")] : [])));
+      ...(workout.timed ? [stat(workout.minutes, "min", "Start to finish")] : [])),
+    ...timeline(workout));
 
   let anySlowed = false;
   const cards = workout.exercises.map(exercise => {
@@ -724,6 +796,46 @@ function paceCard(set) {
         ...(tones.has("slow") ? [el("span", {}, el("i", {class: "slow"}), "10% or more slower")] : []),
         ...(tones.has("slower") ? [el("span", {}, el("i", {class: "slower"}), "25% or more slower")] : []))),
     sentence);
+}
+
+function traceKey(set) {
+  // The line changes when the exercise does (a different exercise is counted on a different signal).
+  return [set.set_id, set.exercise, set.counted].join("|");
+}
+
+function traceCard(set) {
+  // What the watch felt: one line for the whole set, and a numbered mark where it counted each rep.
+  if (!trace || trace.key !== traceKey(set) || !trace.points || trace.points.length < 2) return null;
+  const points = trace.points, reps = trace.reps || [];
+  const end = points[points.length - 1][0] || 1;
+  let low = Infinity, high = -Infinity;
+  for (const [, g] of points) { low = Math.min(low, g); high = Math.max(high, g); }
+  const room = (high - low || 1) * 0.12;                 // air above and below, so marks at the top aren't cut off
+  low -= room; high += room;
+  const x = t => 100 * t / end, y = g => 100 * (g - low) / (high - low);
+  const path = points.map(([t, g], i) => (i ? "L" : "M") + x(t).toFixed(2) + " " + (100 - y(g)).toFixed(2)).join("");
+  const valueAt = t => {                                 // the line's height at a moment between two of its points
+    let i = points.findIndex(point => point[0] >= t);
+    if (i <= 0) return points[i === 0 ? 0 : points.length - 1][1];
+    const [t0, g0] = points[i - 1], [t1, g1] = points[i];
+    return g0 + (g1 - g0) * (t1 === t0 ? 0 : (t - t0) / (t1 - t0));
+  };
+  const small = reps.length > 14;                        // many reps: plain marks, the numbers would collide
+  // Pull-ups and push-ups are counted on how far the wrist turns, because the hand itself stays put.
+  const what = trace.unit === "degrees" ? "The line is your wrist turning as your body moves." : "The line is your wrist moving.";
+  return el("section", {class: "card", "data-rise": ""},
+    el("div", {class: "card-head"}, el("h2", {}, "Movement"), el("span", {class: "muted"}, "What the watch felt")),
+    el("div", {class: "chart", role: "img",
+               "aria-label": "Your wrist's movement over " + Math.round(end) + " seconds, with " + plural(reps.length, "rep") + " marked"},
+      el("div", {class: "trace"},
+        svgEl("svg", {viewBox: "0 0 100 100", preserveAspectRatio: "none", "aria-hidden": "true"},
+          svgEl("path", {class: "area", d: path + "L100 100L0 100Z"}),
+          svgEl("path", {class: "line", d: path})),
+        ...reps.map((t, i) => el("span", {class: "rep-dot" + (small ? " small" : ""),
+                                          style: "--c:" + Math.min(i, 14) + ";left:" + x(t).toFixed(2) + "%;bottom:" + y(valueAt(t)).toFixed(2) + "%"},
+                                 small ? "" : String(i + 1)))),
+      el("div", {class: "ends"}, el("span", {}, "0 s"), el("span", {}, Math.round(end) + " s"))),
+    el("div", {class: "note"}, what + (reps.length ? " Each mark is a rep the counter found." : " The counter found no reps in it.")));
 }
 
 function labelOf(name) {
@@ -821,6 +933,7 @@ function drawSet() {
   }}, "Remove this set");
 
   const pace = paceCard(set);
+  const movement = traceCard(set);
   const gaps = set.gaps || [];
   // When the set happened; for one recorded before the watch knew the time, when it was uploaded.
   const when = set.started_at ? new Date(set.started_at * 1000) : new Date(set.received_at.replace(" ", "T") + "Z");
@@ -842,6 +955,7 @@ function drawSet() {
         ...(set.counted === null && !corrected ? [el("div", {"data-rise": ""}, callout("effort", "warn", "This set couldn't be counted. Its recording is saved. You can set the reps yourself."))] : []),
         ...(set.counted === 0 && !corrected && !set.removed_at ? [el("div", {"data-rise": ""}, callout("", "info", "No reps were found in this recording. If it was a test press, remove the set. If not, set the reps yourself."))] : []),
         ...(corrected && pace && set.counted !== set.reps ? [el("div", {"data-rise": ""}, callout("", "info", "The pace below is from the " + plural(set.counted, "rep") + " the counter found."))] : []),
+        ...(movement ? [movement] : []),
         ...(pace ? [pace] : [])),
       el("div", {class: "stack"},
         repsCard,
@@ -859,6 +973,51 @@ function drawSet() {
 
 function shortDay(iso) {
   return new Date(iso).toLocaleDateString(undefined, {month: "short", day: "numeric"});
+}
+
+function activityCard() {
+  // The last four weeks, Monday to Sunday, newest week at the bottom. A day with a workout is filled,
+  // brighter for a bigger day, and opens that workout. Worked out here from the workouts already loaded.
+  const midnight = date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const today = midnight(new Date());
+  const monday = new Date(today); monday.setDate(today.getDate() - (today.getDay() + 6) % 7);
+  const first = new Date(monday); first.setDate(monday.getDate() - 21);
+  const byDay = new Map();          // day -> {reps, sets, count, index of that day's newest workout}
+  workouts.forEach((workout, index) => {
+    const key = midnight(new Date(workout.started_at)).getTime();
+    const day = byDay.get(key) || {reps: 0, sets: 0, count: 0, index};
+    day.reps += workout.reps; day.sets += workout.sets; day.count += 1;
+    byDay.set(key, day);           // workouts are newest first, so the first one seen for a day is its newest
+  });
+  const most = Math.max(1, ...[...byDay.values()].map(day => day.reps));
+  let thisWeek = 0, fourWeeks = 0, shownOn = 0;
+  const cells = [];
+  for (let i = 0; i < 28; i++) {
+    const date = new Date(first); date.setDate(first.getDate() + i);
+    const day = byDay.get(date.getTime());
+    const isToday = date.getTime() === today.getTime(), later = date > today;
+    const spoken = date.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
+    if (day) {
+      fourWeeks += day.count;
+      if (date >= monday) thisWeek += day.count;
+      cells.push(el("button", {class: "day on" + (day.reps >= 0.6 * most ? " big" : "") + (isToday ? " today" : ""), style: "--c:" + Math.min(shownOn++, 10),
+                               "aria-label": spoken + ": " + plural(day.reps, "rep") + ", " + plural(day.sets, "set") + ". Open this workout.",
+                               onclick: () => { shown = day.index; location.hash = ""; window.scrollTo(0, 0); }},
+                    String(date.getDate())));
+    } else {
+      cells.push(el("div", {class: "day" + (isToday ? " today" : "") + (later ? " later" : ""),
+                            role: "img", "aria-label": spoken + (later ? "" : ": no workout")}, String(date.getDate())));
+    }
+  }
+  return el("section", {class: "card", "data-rise": ""},
+    el("div", {class: "card-head"}, el("h2", {}, "Last 4 weeks"), el("span", {class: "muted"}, plural(fourWeeks, "workout"))),
+    el("div", {class: "cal"},
+      el("div", {class: "weeks"},
+        ...["M", "T", "W", "T", "F", "S", "S"].map(letter => el("span", {class: "wd", "aria-hidden": "true"}, letter)),
+        ...cells),
+      el("div", {class: "words"},
+        el("span", {class: "n num"}, String(thisWeek), el("small", {}, thisWeek === 1 ? "workout this week" : "workouts this week")),
+        el("span", {class: "muted"}, "Tap a filled day to open its workout."))));
 }
 
 function drawProgress() {
@@ -881,11 +1040,7 @@ function drawProgress() {
         el("span", {class: "val", style: "bottom:" + height + "%"}, el("span", {}, String(w.reps))),
         el("div", {class: "bar" + (last ? "" : " past"), style: "height:" + height + "%"}));
     });
-    const change = exercise.change;
-    const delta = change === null ? null
-      : change > 0 ? el("span", {class: "delta up"}, icon("more", 13, 2.8), plural(change, "more rep") + " than last time")
-      : change < 0 ? el("span", {class: "delta"}, icon("less", 13, 2.8), plural(-change, "fewer rep") + " than last time")
-      : el("span", {class: "delta"}, icon("stay", 13, 2.8), "Same as last time");
+    const delta = exercise.change === null ? null : changeChip(exercise.change, "last time");
     const facts = [plural(latest.sets, "set"), "best set " + latest.best];
     if (latest.weight) facts.push(pounds(latest.weight));
     return el("section", {class: "card", "data-rise": ""},
@@ -903,7 +1058,8 @@ function drawProgress() {
   });
   view.replaceChildren(el("div", {class: "stack"},
     el("div", {"data-rise": ""}, el("h2", {style: "font-size:24px;font-weight:700;letter-spacing:-0.02em"}, "Progress"),
-      el("div", {class: "muted"}, "Total reps per workout, for each exercise.")),
+      el("div", {class: "muted"}, "How often you train, and total reps per workout for each exercise.")),
+    activityCard(),
     el("div", {class: "list b"}, ...cards)));
 }
 
@@ -949,7 +1105,7 @@ function draw(force) {
   drawStatus();
   const where = route();
   const fresh = [...arrived.keys()].filter(isNew);       // so the "New" mark is drawn when it appears and cleared when it runs out
-  const fingerprint = JSON.stringify([workouts, health, openSet, where, shown, serverDown, loaded, progress, fresh]);
+  const fingerprint = JSON.stringify([workouts, health, openSet, where, shown, serverDown, loaded, progress, fresh, trace && trace.key]);
   if (!force && fingerprint === lastDrawn) return;      // nothing new: leave the screen alone
   lastDrawn = fingerprint;
 
@@ -1013,6 +1169,12 @@ async function refresh() {
     if (where.screen === "set") {
       if (newSet === null) { location.hash = ""; return; }      // a set that doesn't exist: back to Today
       openSet = newSet;
+      const key = traceKey(newSet);
+      if (!trace || trace.key !== key) {
+        // A set with no recording to draw simply has no Movement card.
+        const drawn = await getJson("/sets/" + encodeURIComponent(where.id) + "/trace").catch(() => ({}));
+        trace = {key, points: drawn.points, reps: drawn.reps, unit: drawn.unit};
+      }
     }
     serverDown = false;
   } catch (error) {

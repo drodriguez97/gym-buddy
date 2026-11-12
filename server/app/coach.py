@@ -118,7 +118,8 @@ def workouts(rows, labels):
                 exercises.append(entry)
             entry["sets"].append({"set_id": row["set_id"], "reps": row["reps"],
                                   "slowdown_pct": pace(row["rep_times"])["slowdown_pct"],
-                                  "weight": row.get("weight"), "at": iso(when(row))})
+                                  "weight": row.get("weight"), "at": iso(when(row)),
+                                  "seconds": round(row["duration_ms"] / 1000)})
         for entry in exercises:
             kind = suggest(entry["sets"]) if entry["exercise"] else None
             weights = [s["weight"] for s in entry["sets"] if s["weight"]]

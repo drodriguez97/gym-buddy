@@ -144,6 +144,24 @@ def roll_angle(gyro, rate_hz, axis=None, drift_s=3.0):
     return smooth(angle, rate_hz, 0.2), axis
 
 
+def anchored_angle(gyro, rate_hz, accel=None, max_push=0.3, push_ratio=6, settle_s=0.3):
+    """The wrist angle count_anchored counts on, with the transitions at the ends
+    taken out (see count_anchored). Returns (angle in degrees, the readings
+    treated as a transition, or None when accel wasn't given)."""
+    moving = None
+    if accel is not None:
+        push = np.abs(smooth(np.linalg.norm(accel, axis=1), rate_hz) - 1.0)
+        limit = max(max_push, push_ratio * np.percentile(push, 75))
+        width = max(1, int(2 * settle_s * rate_hz))
+        moving = maximum_filter1d((push > limit).astype(int), size=width) > 0
+        n = len(moving)
+        moving[n // 4: n - n // 4] = False       # transitions happen at the ends
+        gyro = gyro.copy()
+        gyro[moving] = 0
+    angle, _ = roll_angle(gyro, rate_hz)
+    return angle, moving
+
+
 def count_anchored(gyro, rate_hz, accel=None, min_prominence_deg=8, min_rep_s=0.6,
                    min_lift=0.5, max_push=0.3, push_ratio=6, settle_s=0.3):
     """Count reps for an anchored hand (pull-ups, push-ups): one top per wrist roll.
@@ -160,17 +178,7 @@ def count_anchored(gyro, rate_hz, accel=None, min_prominence_deg=8, min_rep_s=0.
     push-up itself pushes harder than on the wrist, and masking mid-set
     cost 10 points on RecoFit's push-ups. Returns peak indexes into gyro.
     """
-    moving = None
-    if accel is not None:
-        push = np.abs(smooth(np.linalg.norm(accel, axis=1), rate_hz) - 1.0)
-        limit = max(max_push, push_ratio * np.percentile(push, 75))
-        width = max(1, int(2 * settle_s * rate_hz))
-        moving = maximum_filter1d((push > limit).astype(int), size=width) > 0
-        n = len(moving)
-        moving[n // 4: n - n // 4] = False       # transitions happen at the ends
-        gyro = gyro.copy()
-        gyro[moving] = 0
-    angle, _ = roll_angle(gyro, rate_hz)
+    angle, moving = anchored_angle(gyro, rate_hz, accel, max_push, push_ratio, settle_s)
     period = rep_period(angle, rate_hz)
     gap = max(min_rep_s, 0.7 * period if period else 0)
     peaks, _ = find_peaks(angle, prominence=min_prominence_deg, distance=max(1, int(gap * rate_hz)))
@@ -325,3 +333,20 @@ if __name__ == "__main__":
     plt.legend()
     plt.show()
 
+
+def trace_signal(accel, rate_hz, gyro=None, exercise=None):
+    """The signal count_reps looked at for this set, for drawing. Returns (signal, unit).
+
+    Most exercises are counted on the accelerometer axis that moves most ("g").
+    An anchored hand (pull-ups, push-ups) is counted on the wrist angle
+    ("degrees"); its accelerometer line is nearly flat and would show nothing.
+    The angle only exists inside the counted window, so it is 0 outside it.
+    """
+    info = describe_set(accel, rate_hz, gyro, True, exercise)
+    if info["kind"] == "anchored" and gyro is not None:
+        start, end = info["start"], info["end"]
+        angle, _ = anchored_angle(gyro[start:end], rate_hz, accel[start:end])
+        full = np.zeros(len(accel))
+        full[start:end] = angle
+        return full, "degrees"
+    return smooth(accel[:, info["axis"]], rate_hz), "g"

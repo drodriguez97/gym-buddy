@@ -9,7 +9,7 @@ from app.main import app, SESSION_COOKIE
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SET_ID = "00004-a956cd"
-DATA = ["/sets", f"/sets/{SET_ID}", "/workouts", "/exercises", "/watch/health", "/progress"]
+DATA = ["/sets", f"/sets/{SET_ID}", f"/sets/{SET_ID}/trace", "/workouts", "/exercises", "/watch/health", "/progress"]
 PASSWORD = "open-sesame"
 
 

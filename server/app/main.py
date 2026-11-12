@@ -13,7 +13,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from app import coach, db, health
-from app.analysis import count_reps, load_set
+from app.analysis import count_reps, load_set, trace_signal
 
 app = FastAPI(title="gym-buddy")
 
@@ -188,6 +188,27 @@ def get_set(set_id: str):
     row = known(set_id)
     # plus gaps, usual_s and slowdown_pct, and the weight to offer
     return {**row, **coach.pace(row["rep_times"]), "last_weight": last_weight(row)}
+
+
+TRACE_POINTS = 240          # enough for a smooth line on any screen; a 2-minute set has 12,000 readings
+
+
+@app.get("/sets/{set_id}/trace", dependencies=[Depends(viewer)])
+def get_trace(set_id: str):
+    # What the watch felt during the set, for the dashboard to draw: the same
+    # smoothed signal the counter looked at (movement in g, or for pull-ups and
+    # push-ups the wrist angle in degrees), thinned out to TRACE_POINTS, and
+    # the moment of each rep it found. Worked out from the raw file on request.
+    row = known(set_id)
+    try:
+        meta, _, accel, gyro = load_set(SET_DIR / f"{set_id}.bin")
+        rate = meta["rate_hz"]
+        signal, unit = trace_signal(accel, rate, gyro, exercise=row["exercise"] or meta.get("exercise"))
+    except Exception:
+        raise HTTPException(status_code=404, detail="no recording to draw")
+    step = max(1, len(signal) // TRACE_POINTS)
+    points = [[round(i / rate, 2), round(float(signal[i:i + step].mean()), 3)] for i in range(0, len(signal), step)]
+    return {"points": points, "reps": row["rep_times"], "unit": unit}
 
 
 class RepsChange(BaseModel):
