@@ -308,3 +308,45 @@ def test_mmfit_floors():
             within.setdefault(row["exercise"], []).append(abs(len(peaks) - int(row["true_reps"])) <= 1)
     below = {ex: f"{np.mean(v):.0%} < {MMFIT_FLOORS[ex]:.0%}" for ex, v in within.items() if np.mean(v) < MMFIT_FLOORS[ex]}
     assert not below, f"below the floor: {below}"
+
+
+def curl_set(reps, ending):
+    """A 3-axis curl set as the watch feels it: gravity turning between the axes, nothing else.
+
+    It starts with the watch facing you (the start button), the arm goes down,
+    `reps` curls two seconds each, and then one of two endings:
+      "lower then press": the arm comes down after the last curl, then reaches for the stop button
+      "press at the top": the last curl goes up and straight on to the stop button
+    """
+    down, top, button = np.array([0.0, -1.0, 0.0]), np.array([0.0, 0.5, 0.87]), np.array([0.75, 0.3, 0.6])
+
+    def move(a, b, seconds):
+        s = (1 - np.cos(np.pi * np.arange(int(seconds * RATE)) / (seconds * RATE))) / 2
+        v = a + (b - a) * s[:, None]
+        return v / np.linalg.norm(v, axis=1)[:, None]
+
+    def hold(a, seconds):
+        return np.tile(a, (int(seconds * RATE), 1))
+
+    parts = [hold(button, 1.0), move(button, down, 0.8), hold(down, 1.0)]
+    for rep in range(reps):
+        last = rep == reps - 1
+        parts.append(move(down, top, 1.0))
+        if last and ending == "press at the top":
+            parts += [move(top, button, 0.5), hold(button, 1.5)]
+        else:
+            parts.append(move(top, down, 1.0))
+    if ending == "lower then press":
+        parts += [hold(down, 0.3), move(down, button, 0.9), hold(button, 1.5)]
+    accel = np.vstack(parts)
+    return accel + np.random.default_rng(3).normal(0, 0.01, accel.shape)
+
+
+def test_a_last_curl_that_runs_into_the_stop_button_still_counts():
+    accel = curl_set(5, "press at the top")
+    assert len(count_reps(accel, RATE, exercise="curl")[0]) == 5
+
+
+def test_reaching_for_the_stop_button_after_lowering_is_not_a_rep():
+    accel = curl_set(5, "lower then press")
+    assert len(count_reps(accel, RATE, exercise="curl")[0]) == 5

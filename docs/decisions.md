@@ -244,3 +244,32 @@ exercise in the dashboard) predate this log and are summarised first.
   looked at and not used: Soro et al. CrossFit (reps paced by a vibration
   cue), GYMU (login needed, no shoulder press), RecGym and WEAR (too slow or
   no rep counts). Benchmark floors: `python -m pytest -m benchmark`.
+- **A last rep that runs into the stop button counts (2026-11-12).** Dan's
+  curl sets tonight (00053, 00054, 00055) each counted 4 of 5. He finishes
+  the last curl at the top and reaches for the button from there, so the arm
+  never comes back down and the top of that rep lies in the stretch
+  `active_window` trims as "watch turned to face you". `tail_rep` looks one
+  rep-length past the trim for one more top. Lowering the arm and then
+  reaching for the button makes a rise in the same place, and counting that
+  would break sets that are right today (tried without a height test: 4 of
+  13 labeled sets gained a false rep). What separates them is height: the
+  reach stops at 0.64-0.73 of a rep's rise in the labeled sets, the real last
+  rep reached 1.23-1.38 in tonight's three, and a press tilts the watch 5.8
+  times further. So the top must rise 1.0 to 2.0 times a typical rep. Thin
+  evidence (three sets for, three against), so the safer habit for the demo
+  is still: lower the arm, wait a second, then press. Labeled sets 13 of 13
+  unchanged; RecoFit 64.8% -> 65.0% exact; MM-Fit 65.0% -> 65.6%, nothing
+  worse. Checked against tonight's sets from their dashboard traces only;
+  the raw files are on the server. `ANALYSIS_VERSION` is now 3.
+- **Start times stamped by an unchecked clock are put right at upload
+  (2026-11-12).** Set 00052 was stamped exactly 8 hours early; the three sets
+  after it were right. The watch's clock held local (Pacific) time at
+  power-on, which our code never sets: `ntptime.settime()` sets UTC, and it
+  runs at the start of a sync, after the first set is already recorded. Why
+  the power-on clock was local is not confirmed (the firmware setting it
+  from its own time zone setting is the likely cause). The fix doesn't need
+  to know: `clock.py` records how far the first time check since power-on
+  moved the clock (`step`), each set's .json says whether its clock had been
+  checked (`clock_checked`), and `sync.py` moves an unchecked set's start by
+  `step` when that is more than two minutes. Not covered: a set stamped by a
+  wrong clock and uploaded only after a later power-on.

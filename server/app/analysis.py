@@ -332,6 +332,44 @@ def edge_reps(y, peaks, min_prominence, min_lift, tolerance=0.35):
     return np.array(peaks)
 
 
+def tail_rep(y, peaks, cut, min_prominence, tolerance=0.35, lowest=1.0, highest=2.0):
+    """Count a last rep that runs straight into pressing the stop button.
+
+    y is the signal from the start of the counted window to the END OF THE
+    SET, so it goes on past `cut`, where active_window stopped looking.
+
+    Finish the last curl at the top and reach for the button from there, and
+    the arm never comes back down: the top of that rep lies in the stretch
+    active_window throws away as "turning the watch to face you". So one more
+    top is looked for past the cut, one rep-length after the last counted rep.
+
+    Lowering the arm first and then reaching for the button makes a rise in
+    the same place, and that one is not a rep. What tells them apart is how
+    far it goes: a reach stops short of where a rep tops out (0.6-0.75 of a
+    rep's rise in our recorded sets), a real last rep goes all the way up and
+    a little beyond (1.2-1.3). So the top must rise at least `lowest` times a
+    typical rep. A press has no such in-between position and tilts the watch
+    several times further than a rep moves it, which `highest` rules out.
+    """
+    if len(peaks) < 2 or cut >= len(y):
+        return peaks
+    level = np.median(y[:cut])
+    lift = np.median(y[peaks] - level)
+    period = float(np.median(np.diff(peaks)))
+    lo = peaks[-1] + int((1 - tolerance) * period)
+    hi = min(peaks[-1] + int((1 + tolerance) * period), len(y) - 1)
+    if hi - lo < 3 or lift <= 0:
+        return peaks
+    i = lo + int(np.argmax(y[lo:hi + 1]))
+    if i < cut - 1 or i in (lo, hi):
+        return peaks                  # inside the window it has been judged already; at an edge it isn't a top
+    rise = (y[i] - level) / lift
+    before = y[max(0, i - int(period)):i + 1]
+    if not lowest <= rise <= highest or y[i] - before.min() < min_prominence:
+        return peaks
+    return np.append(peaks, i)
+
+
 def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
                exercise=None, min_prominence=0.3, min_rep_s=0.3, min_lift=0.6, **thresholds):
     """Find the top of each rep. Returns (peak indexes, smoothed signal, axis used).
@@ -353,6 +391,8 @@ def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
         e.g. the bump from getting into position before the first rep.
     Weak tops get a second look afterwards where a rep is due: in a hole
     between two reps (gap_reps) and before the first / after the last (edge_reps).
+    A last rep that runs straight into the button press is looked for just past
+    the trimmed window (tail_rep).
     Peak indexes count from the start of the whole set, so they line up with t.
     """
     info = describe_set(accel, rate_hz, gyro, trim, exercise, **thresholds)
@@ -388,6 +428,8 @@ def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
         peaks = peaks[lift >= min_lift * np.median(lift)]
     peaks = gap_reps(y, peaks, rate_hz, min_prominence, min_lift)
     peaks = edge_reps(y, peaks, min_prominence, min_lift)
+    if end < len(sig):
+        peaks = tail_rep((-sig if invert else sig)[start:], peaks, end - start, min_prominence)
     return peaks + start, sig, axis
 
 
