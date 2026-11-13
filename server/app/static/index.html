@@ -91,7 +91,7 @@
           display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
   .card h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
-  .card-head .muted { font-size: 13px; text-align: right; }
+  .card-head .muted { font-size: 14px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 
   /* The big number at the top of Today and of a set. */
   .hero { background: radial-gradient(120% 130% at 0% 0%, var(--hero-glow), transparent 62%), var(--card); padding: 20px; gap: 16px; }
@@ -142,7 +142,16 @@
   .rowlink { position: relative; }
   .rowlink + .rowlink::before { content: ""; position: absolute; left: 10px; right: 6px; top: 0; border-top: 1px solid var(--line); }
   .rowlink .sub { display: block; color: var(--muted); font-size: 13px; }
-  .rowlink svg { color: var(--muted); }
+  .rowlink svg { color: var(--muted); flex: none; }
+  .section-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; padding: 12px 4px 2px; }
+  .day-label { font-size: 12px; font-weight: 600; color: var(--muted); padding: 12px 10px 2px; }
+  .rowlink + .day-label { border-top: 1px solid var(--line); margin-top: 4px; }
+  .rowlink .main { flex: 1; min-width: 0; }
+  .rowlink .what { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rowlink .hard { color: var(--effort-text); }
+  .rowlink .count { flex: none; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+  .rowlink .count b { font-size: 20px; font-weight: 650; }
+  .rowlink .count small { font-size: 11px; color: var(--muted); }
   .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 10px; font-size: 15px; }
   .kv + .kv { border-top: 1px solid var(--line); }
   .kv > span:first-child { color: var(--muted); }
@@ -743,6 +752,40 @@ function timeline(workout) {
        el("span", {}, clock(moving) + " moving · longest rest " + clock(longest)), el("span", {}, time(start + span))))];
 }
 
+function otherWorkouts() {
+  // Every workout but the one on screen, newest first, under a line for its day. A row says what was
+  // trained (the day is already above it), then when and how much, with the reps as the number to scan.
+  const dayOf = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const today = dayOf(new Date());
+  const rows = [];
+  let lastDay = null;
+  workouts.forEach((other, index) => {
+    if (index === shown) return;
+    const date = new Date(other.started_at), day = dayOf(date);
+    if (day !== lastDay) {
+      const days = Math.round((today - day) / 86400000);
+      rows.push(el("div", {class: "day-label"}, days === 0 ? "Today" : days === 1 ? "Yesterday"
+        : date.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"})));
+      lastDay = day;
+    }
+    const names = other.exercises.filter(e => e.exercise).map(e => e.label);
+    const what = !names.length ? "No exercise picked"
+               : names.slice(0, 2).join(", ") + (names.length > 2 ? " +" + (names.length - 2) : "");
+    const time = date.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+    const pushed = other.effort.pushed;
+    rows.push(el("button", {class: "rowlink", onclick: () => { shown = index; draw(true); window.scrollTo(0, 0); },
+                            "aria-label": workoutTitle(other) + ": " + (names.join(", ") || what) + ", " + plural(other.reps, "rep")
+                                          + ", " + plural(other.sets, "set") + (pushed ? ", " + pushed + " pushed hard" : "") + ". Open this workout."},
+      el("span", {class: "main"},
+        el("span", {class: "what"}, what),
+        el("span", {class: "sub"}, (other.timed ? time : "Uploaded " + time) + " · " + plural(other.sets, "set"),
+           ...(pushed ? [" · ", el("span", {class: "hard"}, pushed + " pushed hard")] : []))),
+      el("span", {class: "count"}, el("b", {class: "num"}, String(other.reps)), el("small", {}, other.reps === 1 ? "rep" : "reps")),
+      icon("right", 18)));
+  });
+  return rows;
+}
+
 function drawToday() {
   if (!workouts.length) {
     view.replaceChildren(el("div", {class: "empty", "data-rise": ""},
@@ -804,12 +847,8 @@ function drawToday() {
   const parts = [hero, el("div", {class: "list b"}, ...cards)];
   if (workouts.length > 1) {
     parts.push(el("section", {class: "stack c", "data-rise": "", style: "gap:8px"},
-      el("h2", {class: "eyebrow", style: "padding:8px 4px 0"}, "Other workouts"),
-      el("div", {class: "card rows"}, ...workouts.map((other, index) => index === shown ? "" :
-        el("button", {class: "rowlink", onclick: () => { shown = index; draw(true); window.scrollTo(0, 0); }},
-           el("span", {}, workoutTitle(other),
-              el("span", {class: "sub"}, plural(other.reps, "rep") + " · " + plural(other.sets, "set"))),
-           icon("right", 18))))));
+      el("h2", {class: "section-title"}, "Other workouts"),
+      el("div", {class: "card rows"}, ...otherWorkouts())));
   }
   view.replaceChildren(el("div", {class: "cols today"}, ...parts));
   return effort.judged ? {node: effort.number, value: effort.pushed} : null;
