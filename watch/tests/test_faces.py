@@ -123,3 +123,17 @@ def test_a_long_label_never_runs_into_the_hint_whatever_the_font(char_w):
 def test_saving_looks_busy_but_is_not_the_sync_colour():
     assert faces.MOODS["saving"][0] == faces.GREEN and faces.MOODS["sync"][0] == faces.AMBER
     assert faces.MOODS["saving"][1:] == faces.MOODS["sync"][1:]
+
+
+def test_the_charging_bolt_is_two_green_triangles_inside_its_box():
+    screen = Recorder()
+    faces.draw_bolt(screen, 193, 6)
+    assert len(screen.boxes) == 2 and all(box[4] == faces.GREEN for box in screen.boxes)
+    assert all(193 <= x0 and x1 <= 193 + 7 and 6 <= y0 and y1 <= 6 + 13 for x0, y0, x1, y1, _ in screen.boxes)
+    assert screen.boxes[0][3] > screen.boxes[1][1]          # the two halves overlap: one bolt, not two marks
+
+
+def test_the_bolt_is_left_out_on_a_firmware_without_triangles():
+    screen = Recorder(missing=("fillTriangle",))
+    faces.draw_bolt(screen, 193, 6)
+    assert screen.boxes == []

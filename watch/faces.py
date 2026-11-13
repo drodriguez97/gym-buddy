@@ -160,6 +160,12 @@ def draw_badge(lcd, count):
     lcd.drawString(str(count), 23, 6)
 
 
+def draw_bolt(lcd, x, y, color=GREEN):
+    # A lightning bolt 7 wide and 13 tall, its top-left corner at (x, y): USB power is connected.
+    _triangle(lcd, x + 5, y, x, y + 7, x + 4, y + 7, color)
+    _triangle(lcd, x + 2, y + 5, x + 6, y + 5, x + 1, y + 12, color)
+
+
 def draw(lcd, mood, title, hint=""):
     # The whole screen: face, one word, one small hint. Returns the mood's colour.
     color = MOODS[mood][0]

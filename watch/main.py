@@ -43,6 +43,7 @@ BLACK = 0x000000
 GREY  = 0x888888
 RED   = 0xFF5A52
 BATTERY_EVERY_MS = 30000    # refresh the battery line (screen on only)
+USB_EVERY_MS = 1000         # look whether the cable was plugged in or pulled, so the bolt follows within a second
 SCREEN_OFF_MS = 20000       # AWAKE -> DARK; the backlight is the #1 drain
 DEEP_SLEEP_MS = 10 * 60000  # DARK -> OFF
 LIGHT_SLEEP_MS = 2000       # longest nap while DARK; button A ends it early
@@ -296,11 +297,19 @@ def reps_hint(reps, sent):
     return "REPS " + " ".join(str(n) for n in reps[-6:])
 
 
+usb_shown = False                           # is the bolt on screen?
+
+
 def draw_status(mood=None):
-    # Top right: a battery icon, red when low. Top left: how many sets are waiting
+    # Top right: a battery icon, red when low, with a green bolt beside it while
+    # USB power is connected. Top left: how many sets are waiting
     # for a sync (not while recording: the recording dot lives there), and a
     # warning when flash is nearly full.
-    lcd.fillRect(200, 6, 32, 13, BLACK)
+    global usb_shown
+    lcd.fillRect(192, 6, 40, 13, BLACK)
+    usb_shown = on_usb()
+    if usb_shown:
+        faces.draw_bolt(lcd, 193, 6)
     if mood != "rec":
         faces.draw_badge(lcd, waiting)
     pct = battery_percent()
@@ -455,6 +464,7 @@ exercise = saved_exercise()
 screen_wake(show_ready)
 screen_on = True
 last_battery = time.ticks_ms()
+last_usb = time.ticks_ms()
 last_activity = time.ticks_ms()
 dark_ms = 0                                 # time spent DARK, counted nap by nap
 wake_press = False                          # a press ended a nap; it only wakes the screen
@@ -572,6 +582,11 @@ try:
                 dimmed = True
             elif face_mood == "ready" and not dimmed and time.ticks_diff(now, blink_at) >= 0:
                 animate(now)
+            if time.ticks_diff(now, last_usb) >= USB_EVERY_MS:
+                last_usb = now
+                if on_usb() != usb_shown:       # the cable went in or came out: don't wait for the battery refresh
+                    draw_status(face_mood)
+                    last_battery = now
             if time.ticks_diff(now, last_battery) >= BATTERY_EVERY_MS:
                 draw_status(face_mood)
                 last_battery = now
