@@ -73,3 +73,23 @@ def test_no_answer_from_the_time_server_is_not_an_error():
 def test_a_firmware_without_ntptime_is_not_an_error():
     with watch_clock(year=2000, seconds=5) as clock:
         assert clock.set_from_internet() is False
+
+
+def test_the_first_check_says_how_far_it_moved_the_clock():
+    # The firmware set local time at power-on: 8 hours behind UTC.
+    def ntp(state):
+        state["seconds"] = 1794300000 - EPOCH_2000
+    with watch_clock(year=2026, seconds=1794300000 - 8 * 3600 - EPOCH_2000, ntp=ntp) as clock:
+        assert clock.checked is False and clock.step is None
+        assert clock.set_from_internet() is True
+        assert clock.checked is True and clock.step == 8 * 3600
+        assert clock.set_from_internet() is True        # a later check finds nothing to move...
+        assert clock.step == 8 * 3600                   # ...and must not forget what the first one found
+
+
+def test_a_clock_with_no_time_before_the_check_has_no_step():
+    def ntp(state):
+        state["year"], state["seconds"] = 2026, 1794300000 - EPOCH_2000
+    with watch_clock(year=2000, seconds=5, ntp=ntp) as clock:
+        assert clock.set_from_internet() is True
+        assert clock.checked is True and clock.step is None

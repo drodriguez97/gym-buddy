@@ -415,3 +415,34 @@ def test_the_start_time_reaches_the_server(watch):
     watch.sync.sync()
     rows = watch.client.get("/sets").json()
     assert [row["started_at"] for row in rows] == [1794300000, 1794300000]
+
+
+# ---- a set stamped by a clock nobody had checked
+
+def stamp(watch, set_id, started_at, clock_checked):
+    path = watch.flash / (set_id + ".json")
+    meta = json.loads(path.read_text())
+    meta["started_at"] = started_at
+    if clock_checked is not None:
+        meta["clock_checked"] = clock_checked
+    path.write_text(json.dumps(meta))
+
+
+def started_on_server(watch, set_id):
+    return json.loads((watch.server_dir / (set_id + ".json")).read_text())["started_at"]
+
+
+def test_a_set_stamped_in_local_time_is_moved_by_what_the_clock_check_found(watch):
+    stamp(watch, SETS[0], 1794300000 - 8 * 3600, clock_checked=False)   # stamped before the check, 8 hours early
+    stamp(watch, SETS[1], 1794200000, clock_checked=None)               # an older set that says nothing about its clock
+    watch.sync.clock.step = 8 * 3600
+    assert watch.sync.sync() == (2, 0, None)
+    assert started_on_server(watch, SETS[0]) == 1794300000
+    assert started_on_server(watch, SETS[1]) == 1794200000
+
+
+def test_a_clock_that_only_drifted_changes_no_start_time(watch):
+    stamp(watch, SETS[0], 1794300000, clock_checked=False)
+    watch.sync.clock.step = 4
+    watch.sync.sync()
+    assert started_on_server(watch, SETS[0]) == 1794300000

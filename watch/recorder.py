@@ -69,6 +69,7 @@ class Recorder:
         gc.collect()                    # tidy memory now, so a clean-up is less likely mid-set
         self.exercise = exercise
         self.started_at = clock.unix_now()      # None until a sync has set the clock
+        self.clock_checked = getattr(clock, "checked", True)    # False: stamped by a clock nobody has checked yet
         self.set_id = _next_set_id()
         self.count = 0
         self.late = 0
@@ -124,6 +125,7 @@ class Recorder:
             "gyro_unit": "0.1 dps",
             "exercise": self.exercise,
             "started_at": self.started_at,
+            "clock_checked": self.clock_checked,
         }
         try:
             with open(base + ".tmp", "wb") as f:

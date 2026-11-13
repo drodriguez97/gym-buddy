@@ -23,6 +23,7 @@ except ImportError:
 
 SET_DIR = "/flash/sets"
 WIFI_TIMEOUT_MS = 15000
+CLOCK_DRIFT_S = 120             # a clock check that moves the time less than this was drift, not a wrong clock
 TRIES = 3                       # per set, when the server can't be reached
 RETRY_WAIT_MS = 5000
 POST_TIMEOUT_S = 15             # give up on one upload after this long; never hang with Wi-Fi on
@@ -81,11 +82,29 @@ def post(url, data, headers):
         return requests.post(url, data=data, headers=headers)
 
 
+def checked_start(meta):
+    # meta: a set's .json as text. A set stamped before the clock was checked
+    # gets its start time moved by as much as the check moved the clock
+    # (see clock.py). A clock that was only drifting is left alone.
+    step = getattr(clock, "step", None)
+    if step is None or -CLOCK_DRIFT_S <= step <= CLOCK_DRIFT_S:
+        return meta
+    try:
+        info = json.loads(meta)
+    except ValueError:
+        return meta
+    if info.get("clock_checked") is not False or info.get("started_at") is None:
+        return meta
+    info["started_at"] += step
+    info["clock_checked"] = True
+    return json.dumps(info)
+
+
 def upload_set(set_id):
     # Returns "stored" (and the set is deleted), "rejected" (server refused it; kept),
     # "bad token" or "no receipt". Raises OSError if the server can't be reached.
     with open("%s/%s.json" % (SET_DIR, set_id)) as f:
-        meta = f.read().strip()
+        meta = checked_start(f.read().strip())
     with open("%s/%s.bin" % (SET_DIR, set_id), "rb") as f:
         data = f.read()
     r = post(config.SERVER + "/sets", data,

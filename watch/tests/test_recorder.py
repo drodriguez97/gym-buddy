@@ -122,7 +122,7 @@ def test_the_json_has_the_fields_the_server_and_analyzer_read(bench):
     bench.run(2000)
     info = bench.rec.stop()
     assert set(info) == {"set_id", "count", "duration_ms", "rate_hz", "late", "format", "accel_unit",
-                         "gyro_unit", "exercise", "started_at"}
+                         "gyro_unit", "exercise", "started_at", "clock_checked"}
     assert info["format"] == "<6h" and info["accel_unit"] == "mg" and info["gyro_unit"] == "0.1 dps"
 
 
