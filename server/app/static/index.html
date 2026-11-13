@@ -1245,11 +1245,28 @@ async function getJson(path) {
   return response.json();
 }
 
+const SEEN_KEY = "gym-buddy-seen-sets";
+function rememberedSets() {
+  // The set IDs this browser had on screen last time, or null if it has never kept any (or isn't allowed to).
+  try {
+    const ids = JSON.parse(localStorage.getItem(SEEN_KEY));
+    return Array.isArray(ids) ? new Set(ids) : null;
+  } catch (error) { return null; }
+}
+function rememberSets(ids) {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(ids)); } catch (error) {}      // private windows may refuse; the page works without it
+}
+
 function noticeNewSets() {
   // Which sets weren't here a moment ago? Those just came from the watch: mark them, say so, and show their workout.
   const ids = workouts.flatMap(w => w.exercises.flatMap(e => e.sets.map(s => s.set_id)));
-  if (knownSets === null) { knownSets = new Set(ids); return; }        // opening the page: nothing is new
+  // A phone throws the page away while it sits in a pocket, and loads it again when you look: by then the
+  // set you just synced is already on the server. So "here a moment ago" is remembered on this phone
+  // across loads (seen 2026-11-13: the first sync after a while arrived with no "New" and no message).
+  if (knownSets === null) knownSets = rememberedSets();
+  if (knownSets === null) { knownSets = new Set(ids); rememberSets(ids); return; }   // the first time on this phone: nothing is new
   const news = ids.filter(id => !knownSets.has(id));
+  rememberSets(ids);
   if (!news.length) return;
   for (const id of news) { knownSets.add(id); arrived.set(id, Date.now()); }
   shown = 0;
