@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.analysis import count_reps, describe_set, edge_reps, gap_reps, load_set
+from app.analysis import count_reps, describe_set, edge_reps, gap_reps, load_set, tail_rep
 
 RATE = 100
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -350,3 +350,41 @@ def test_a_last_curl_that_runs_into_the_stop_button_still_counts():
 def test_reaching_for_the_stop_button_after_lowering_is_not_a_rep():
     accel = curl_set(5, "lower then press")
     assert len(count_reps(accel, RATE, exercise="curl")[0]) == 5
+
+
+# ---- tail_rep on its own: what comes after the last counted rep (sets 00063, 00064 and 00012)
+
+def after_four_reps(*tail):
+    """Four counted reps, one a second, tops at +1 and bottoms at -1, ending at the bottom where
+    the counted window stops. Then `tail`: (level to move to, seconds) pairs. Returns (y, peaks, cut)."""
+    n = int(RATE)
+    parts, at = [-np.cos(2 * np.pi * np.arange(4 * n) / n)], -1.0
+    for level, seconds in tail:
+        s = (1 - np.cos(np.pi * np.arange(int(seconds * n)) / (seconds * n))) / 2
+        parts.append(at + (level - at) * s)
+        at = level
+    return np.concatenate(parts), np.array([n // 2 + i * n for i in range(4)]), 4 * n
+
+
+def test_a_last_rep_before_the_watch_is_held_facing_you_counts():
+    # 00064: the fifth top, a little way back down, then up to a position that reads higher than any rep, and held there.
+    y, peaks, cut = after_four_reps((0.9, 0.5), (0.4, 0.2), (2.0, 0.3), (2.0, 2.0))
+    found = tail_rep(y, peaks, cut, 0.3)
+    assert len(found) == 5 and abs(found[-1] - 450) <= 3
+
+
+def test_a_ledge_on_the_way_up_to_the_button_is_not_a_rep():
+    # 00012: the same climb, but it only hesitates (comes back 0.05) before going on up.
+    y, peaks, cut = after_four_reps((0.9, 0.5), (0.85, 0.1), (2.0, 0.3), (2.0, 2.0))
+    assert len(tail_rep(y, peaks, cut, 0.3)) == 4
+
+
+def test_a_last_rep_a_little_lower_than_the_others_counts():
+    # 00063: the fifth top reached 0.9 of the others, then the arm came down.
+    y, peaks, cut = after_four_reps((0.85, 0.5), (-0.5, 0.4), (0.0, 0.5))
+    assert len(tail_rep(y, peaks, cut, 0.3)) == 5
+
+
+def test_a_reach_that_stops_well_short_of_a_rep_is_not_one():
+    y, peaks, cut = after_four_reps((0.65, 0.5), (-0.5, 0.4), (0.0, 0.5))
+    assert len(tail_rep(y, peaks, cut, 0.3)) == 4

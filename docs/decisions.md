@@ -261,6 +261,25 @@ exercise in the dashboard) predate this log and are summarised first.
   unchanged; RecoFit 64.8% -> 65.0% exact; MM-Fit 65.0% -> 65.6%, nothing
   worse. Checked against tonight's sets from their dashboard traces only;
   the raw files are on the server. `ANALYSIS_VERSION` is now 3.
+- **The last-rep rule missed two more endings (2026-11-13).** Sets 00063 and
+  00064 (5 curls each) still counted 4 on version 3. In 00064 Dan held the
+  watch facing him after the last curl; that position reads higher than any
+  rep, so "the highest reading one rep-length on" was the climb towards it at
+  the edge of the search and the real fifth top just before it was never
+  looked at. In 00063 the fifth top reached 0.91 of a typical rise and the
+  rule wanted 1.0. `tail_rep` now takes real turning points (up, then down),
+  the one nearest to where the next rep was due, and accepts a rise of 0.8
+  to 2.0. Turning points alone let in a ledge on the climb to the button
+  (labeled chest press 00012 went 6 -> 7), so if the signal goes on higher
+  than the top it must first have come back down 0.3 of a rep's rise (00012
+  came back 0.13, the real ones 0.5 and more). The gap between a reach
+  (0.64-0.74) and a real last rep (0.91 and up) is narrow, so the demo habit
+  stands: lower the arm, wait a second, then press. Labeled sets 13 of 13;
+  MM-Fit 65.6% -> 66.2% exact, 91.3% -> 91.9% within one (15 sets better, 1
+  worse); RecoFit 65.0% -> 65.4% (3 better, 1 worse, a non-exercise set that
+  was already wrong). Today's sets were checked from their dashboard traces
+  with the trim point swept, not from the raw files, which are on the server.
+  `ANALYSIS_VERSION` is now 4.
 - **Start times stamped by an unchecked clock are put right at upload
   (2026-11-12).** Set 00052 was stamped exactly 8 hours early; the three sets
   after it were right. The watch's clock held local (Pacific) time at

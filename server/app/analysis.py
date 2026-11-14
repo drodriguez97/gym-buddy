@@ -332,7 +332,17 @@ def edge_reps(y, peaks, min_prominence, min_lift, tolerance=0.35):
     return np.array(peaks)
 
 
-def tail_rep(y, peaks, cut, min_prominence, tolerance=0.35, lowest=1.0, highest=2.0):
+def dip_before_higher(after):
+    """How far the signal falls below after[0] before it next rises above it.
+
+    Infinite if it never rises above it: then after[0] is the highest point
+    and there is nothing it could be a ledge on the way up to.
+    """
+    higher = np.nonzero(after > after[0])[0]
+    return after[0] - after[:higher[0]].min() if len(higher) else np.inf
+
+
+def tail_rep(y, peaks, cut, min_prominence, tolerance=0.35, lowest=0.8, highest=2.0, comes_down=0.3):
     """Count a last rep that runs straight into pressing the stop button.
 
     y is the signal from the start of the counted window to the END OF THE
@@ -346,10 +356,20 @@ def tail_rep(y, peaks, cut, min_prominence, tolerance=0.35, lowest=1.0, highest=
     Lowering the arm first and then reaching for the button makes a rise in
     the same place, and that one is not a rep. What tells them apart is how
     far it goes: a reach stops short of where a rep tops out (0.6-0.75 of a
-    rep's rise in our recorded sets), a real last rep goes all the way up and
-    a little beyond (1.2-1.3). So the top must rise at least `lowest` times a
-    typical rep. A press has no such in-between position and tilts the watch
-    several times further than a rep moves it, which `highest` rules out.
+    rep's rise in our recorded sets), a real last rep goes all the way up
+    (0.9-1.4). So the top must rise at least `lowest` times a typical rep. A
+    press has no such in-between position and tilts the watch several times
+    further than a rep moves it, which `highest` rules out.
+
+    The top is a real turning point (up, then down again), the one nearest to
+    where the next rep was due. Taking the highest reading instead missed the
+    rep whenever the watch was then held facing you: that position reads
+    higher than any rep, so the highest reading was the climb towards it at
+    the edge of the search (set 00064, 2026-11-13). If the signal does go on
+    higher than the top, the arm must first have come some way back down
+    (`comes_down` of a rep's rise): a ledge on the climb to that facing-you
+    position turns too, by a hair, and is not a rep (a chest press, 00012,
+    came back 0.13; the real last reps 0.5 and more).
     """
     if len(peaks) < 2 or cut >= len(y):
         return peaks
@@ -360,14 +380,16 @@ def tail_rep(y, peaks, cut, min_prominence, tolerance=0.35, lowest=1.0, highest=
     hi = min(peaks[-1] + int((1 + tolerance) * period), len(y) - 1)
     if hi - lo < 3 or lift <= 0:
         return peaks
-    i = lo + int(np.argmax(y[lo:hi + 1]))
-    if i < cut - 1 or i in (lo, hi):
-        return peaks                  # inside the window it has been judged already; at an edge it isn't a top
-    rise = (y[i] - level) / lift
-    before = y[max(0, i - int(period)):i + 1]
-    if not lowest <= rise <= highest or y[i] - before.min() < min_prominence:
+    tops, _ = find_peaks(y[lo:hi + 1])
+    reach = int(period)
+    found = [i for i in tops + lo
+             if i >= cut - 1                                            # inside the window it has been judged already
+             and lowest <= (y[i] - level) / lift <= highest
+             and y[i] - y[max(0, i - reach):i + 1].min() >= min_prominence
+             and dip_before_higher(y[i:i + reach + 1]) >= comes_down * lift]
+    if not found:
         return peaks
-    return np.append(peaks, i)
+    return np.append(peaks, min(found, key=lambda i: abs(i - (peaks[-1] + period))))
 
 
 def count_reps(accel, rate_hz, gyro=None, axis=None, invert=None, trim=True,
