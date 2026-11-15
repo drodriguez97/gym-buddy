@@ -156,6 +156,8 @@
   .rowlink .main { flex: 1; min-width: 0; }
   .rowlink .what { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rowlink .hard { color: var(--effort-text); }
+  .rowlink.more { min-height: 48px; color: var(--muted); font-weight: 600; font-size: 14px; }
+  .rowlink .when { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
   .rowlink .count { flex: none; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
   .rowlink .count b { font-size: 20px; font-weight: 650; }
   .rowlink .count small { font-size: 11px; color: var(--muted); }
@@ -429,6 +431,7 @@
   .bubble .title { position: relative; }
   .score { display: flex; align-items: center; gap: 16px; }
   .score .label { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .score .say.next { font-size: 13px; max-width: 26ch; }
   .ring { position: relative; width: 104px; height: 104px; flex: none; }
   .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
   .ring circle { fill: none; stroke-width: 11; }
@@ -522,10 +525,11 @@ const NEW_FOR_MS = 120000;    // a set that just arrived is marked "New" for thi
 const TOAST_MS = 7000;        // how long a message at the bottom stays up
 const TOASTS_AT_ONCE = 3;     // more than this and the oldest gives way
 
-let workouts = [];            // newest first, as GET /workouts returned them
+let workouts = [];            // one entry per day, newest first: GET /workouts folded by byDay()
 let health = null;            // GET /watch/health
 let locked = true;            // GET /session: false when the server has no password, so there is nothing to sign out of
 let exercises = [];           // [{name, label}] for the dropdown
+let listed = 7;               // how many rows Other workouts shows; "Show older" adds a week's worth
 let shown = 0;                // which workout is on screen: 0 = the newest
 let openSet = null;           // the set on the detail screen, as GET /sets/{id} returned it
 let lastDrawn = "";           // what was last drawn, so an unchanged refresh doesn't redraw
@@ -568,7 +572,7 @@ function svgEl(tag, attrs, ...children) {
 
 // Each icon is one line drawing on a 24 x 24 grid. The text is fixed here, never from the server.
 const ICONS = {
-  right: "M9 6l6 6-6 6", left: "M15 6l-6 6 6 6", down: "M6 9l6 6 6-6",
+  right: "M9 6l6 6-6 6", left: "M15 6l-6 6 6 6", down: "M6 9l6 6 6-6", up: "M6 15l6-6 6 6",
   more: "M12 19V5M6 11l6-6 6 6", less: "M12 5v14M6 13l6 6 6-6", stay: "M6 9h12M6 15h12",
   ok: "M5 12.5l4.5 4.5L19 7.5", warn: "M12 6v7.5M12 17.4v.2", fail: "M7 7l10 10M17 7L7 17",
   slowed: "M3 7l6 6 4-4 8 8M21 12v5h-5",
@@ -609,6 +613,41 @@ function clockTime(date) {
   return date.toLocaleDateString(undefined, {month: "short", day: "numeric"}) + ", " + time;
 }
 
+function byDay(list) {
+  // The server splits sets into workouts wherever more than 30 minutes pass. The wearer thinks in days,
+  // so the dashboard shows one entry per day: every session on that day folded together, each exercise once
+  // with all of its sets in the order they were done. Nothing is recounted here; the numbers are only added up.
+  const days = new Map();                 // local midnight -> that day's workouts, newest first as they arrive
+  for (const workout of list) {
+    const date = new Date(workout.started_at);
+    const key = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    if (!days.has(key)) days.set(key, []);
+    days.get(key).push(workout);
+  }
+  return [...days.values()].map(sessions => {
+    if (sessions.length === 1) return {...sessions[0], sessions: 1};
+    const inOrder = [...sessions].reverse();           // oldest first, so sets and exercises read in the order done
+    const exercises = [];
+    for (const session of inOrder) {
+      for (const exercise of session.exercises) {
+        let entry = exercises.find(e => e.exercise === exercise.exercise);
+        if (!entry) exercises.push(entry = {exercise: exercise.exercise, label: exercise.label, sets: [], suggestion: null});
+        entry.sets.push(...exercise.sets);
+        if (exercise.suggestion) entry.suggestion = exercise.suggestion;      // the latest session's advice stands
+      }
+    }
+    const sum = pick => inOrder.reduce((total, session) => total + pick(session), 0);
+    return {
+      started_at: inOrder[0].started_at, sessions: sessions.length,
+      minutes: sum(w => w.minutes), timed: inOrder.every(w => w.timed),
+      sets: sum(w => w.sets), reps: sum(w => w.reps),
+      effort: {pushed: sum(w => w.effort.pushed), judged: sum(w => w.effort.judged)},
+      advice: null,                                    // each exercise card carries its own
+      exercises,
+    };
+  });
+}
+
 function workoutTitle(workout) {
   const date = new Date(workout.started_at);
   const today = new Date().toDateString() === date.toDateString();
@@ -616,6 +655,7 @@ function workoutTitle(workout) {
   const time = date.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
   // Sets recorded before the watch knew the time are dated by when they were uploaded.
   // "uploaded", not "synced": this is when these sets arrived, not when the watch last synced.
+  if (workout.sessions > 1) return day;               // several sessions: the day is the title
   return day + (workout.timed ? ", " + time : ", uploaded " + time);
 }
 
@@ -812,7 +852,9 @@ function effortBlock(workout) {
   const kinds = (workout.exercises || []).map(exercise => exercise.suggestion && exercise.suggestion.kind);
   const all = pushed === judged;
   const mood = !judged ? "ok"
-             : kinds.includes("less") ? "tired"
+             // A grind is a day where it was too heavy somewhere AND at least half the sets were pushed hard (two or more).
+             // One hard set on an otherwise steady day is not a grind.
+             : kinds.includes("less") && pushed >= 2 && pushed * 2 >= judged ? "tired"
              : pushed === 0 ? (kinds.includes("more") ? "nudge" : "ok")
              : all && judged > 1 ? "pumped" : "ok";
   const title = !judged ? "Not enough to judge yet"
@@ -821,16 +863,14 @@ function effortBlock(workout) {
               : pushed === 0 ? "Steady work!"
               : mood === "pumped" ? "Great session!"
               : "Good work!";
-  const did = !judged ? "Do a set of 3 reps or more and I'll tell you how hard it was."
+  const did = !judged ? "Do a set of 3 reps or more and I'll rate it."
             // The bubble adds the feeling. The count is the ring's to give and the weights are the advice's, so neither is repeated here.
             : mood === "tired" ? "That one took a lot out of you."
             : pushed === 0 ? (mood === "nudge" ? "Your pace never dropped. Time to step it up."
                                                : kinds.includes("stay") ? "Not easy, not all-out. Right where you should be."
-                                               : "Nothing at your limit today.")
+                                               : "You kept something in reserve.")
             : all ? "You left nothing in the tank."
             : "You dug deep when it got tough.";
-  // With one exercise, its own card right below gives the same advice in more detail: say it once.
-  const advice = kinds.filter(Boolean).length > 1 ? workout.advice : null;
   const spoken = judged ? title + " " + pushed + " of " + plural(judged, "set") + " pushed hard" : title;
   const node = el("div", {class: "effort", role: "group", "aria-label": spoken},
     el("div", {class: "coach"},
@@ -839,19 +879,17 @@ function effortBlock(workout) {
     el("div", {class: "score"},
       ring,
       el("div", {class: "words"},
-        el("div", {class: "label"}, !judged ? "No sets judged yet" : (pushed === 1 ? "set" : "sets") + " pushed hard"),
-        ...(advice ? [el("div", {class: "say next"}, advice)] : []))));
-  // What the number means, in one line under it: on a phone there is no room for it beside the ring.
-  const why = el("div", {class: "why"}, judged ? "Pushed hard: the last rep took at least 25% longer than your usual pace."
-                                               : "Effort shows up on sets of 3 reps or more.");
-  return {node, why, number, pushed, judged};
+        el("div", {class: "label"}, (pushed === 1 ? "set" : "sets") + " pushed hard"),
+        // What that means, said once on this page.
+        el("div", {class: "say next"}, "The last rep was at least 25% slower than your usual pace."))));
+  return {node, number, pushed, judged};
 }
 
 function timeline(workout) {
   // The workout laid out along time: a block for each set, as wide as the set was long. The gaps are rest.
   // Only for workouts whose sets know when they happened; uploaded-all-at-once sets would be one pile.
   const sets = workout.exercises.flatMap(e => e.sets).map(s => ({...s, from: new Date(s.at).getTime() / 1000}));
-  if (!workout.timed || sets.length < 2) return [];
+  if (!workout.timed || sets.length < 2 || workout.sessions > 1) return [];
   sets.sort((a, b) => a.from - b.from);
   const start = sets[0].from, last = sets[sets.length - 1];
   const span = last.from + last.seconds - start;
@@ -872,36 +910,42 @@ function timeline(workout) {
 }
 
 function otherWorkouts() {
-  // Every workout but the one on screen, newest first, under a line for its day. A row says what was
-  // trained (the day is already above it), then when and how much, with the reps as the number to scan.
+  // Every day but the one on screen, newest first: one row a day. The row says which day, what was trained
+  // (each exercise once), then how much, with the reps as the number to scan.
   const dayOf = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const today = dayOf(new Date());
   const rows = [];
-  let lastDay = null;
+  let hidden = 0;
   workouts.forEach((other, index) => {
     if (index === shown) return;
-    const date = new Date(other.started_at), day = dayOf(date);
-    if (day !== lastDay) {
-      const days = Math.round((today - day) / 86400000);
-      rows.push(el("div", {class: "day-label"}, days === 0 ? "Today" : days === 1 ? "Yesterday"
-        : date.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"})));
-      lastDay = day;
-    }
+    if (rows.length >= listed) { hidden += 1; return; }      // the page stays short; the rest are one tap away
+    const date = new Date(other.started_at);
+    const days = Math.round((today - dayOf(date)) / 86400000);
+    const dayName = days === 0 ? "Today" : days === 1 ? "Yesterday"
+                  : date.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
     const names = other.exercises.filter(e => e.exercise).map(e => e.label);
     const what = !names.length ? "No exercise picked"
-               : names.slice(0, 2).join(", ") + (names.length > 2 ? " +" + (names.length - 2) : "");
-    const time = date.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+               : names.slice(0, 3).join(", ") + (names.length > 3 ? " +" + (names.length - 3) : "");
     const pushed = other.effort.pushed;
     rows.push(el("button", {class: "rowlink", onclick: () => { shown = index; draw(true); window.scrollTo(0, 0); },
-                            "aria-label": workoutTitle(other) + ": " + (names.join(", ") || what) + ", " + plural(other.reps, "rep")
-                                          + ", " + plural(other.sets, "set") + (pushed ? ", " + pushed + " pushed hard" : "") + ". Open this workout."},
+                            "aria-label": dayName + ": " + (names.join(", ") || what) + ", " + plural(other.reps, "rep")
+                                          + ", " + plural(other.sets, "set") + (pushed ? ", " + pushed + " pushed hard" : "") + ". Open this day."},
       el("span", {class: "main"},
+        el("span", {class: "when"}, dayName),
         el("span", {class: "what"}, what),
-        el("span", {class: "sub"}, (other.timed ? time : "Uploaded " + time) + " · " + plural(other.sets, "set"),
+        el("span", {class: "sub"}, plural(other.sets, "set"),
            ...(pushed ? [" · ", el("span", {class: "hard"}, pushed + " pushed hard")] : []))),
       el("span", {class: "count"}, el("b", {class: "num"}, String(other.reps)), el("small", {}, other.reps === 1 ? "rep" : "reps")),
       icon("right", 18)));
   });
+  if (hidden) {
+    rows.push(el("button", {class: "rowlink more", onclick: () => { listed += 7; draw(true); }},
+      el("span", {class: "main"}, "Show older"), el("span", {class: "sub"}, hidden + " more"), icon("down", 18)));
+  }
+  if (listed > 7 && rows.length > 7) {      // opened up: a way back to the short list
+    rows.push(el("button", {class: "rowlink more", onclick: () => { listed = 7; draw(true); }},
+      el("span", {class: "main"}, "Show fewer"), icon("up", 18)));
+  }
   return rows;
 }
 
@@ -916,18 +960,14 @@ function drawToday() {
   }
   const workout = workouts[Math.min(shown, workouts.length - 1)];
   const effort = effortBlock(workout);
-  const picked = workout.exercises.filter(e => e.exercise).length;
-  const before = workouts[Math.min(shown, workouts.length - 1) + 1];      // the workout before this one, if there is one
   const hero = el("section", {class: "card hero a", "data-rise": ""},
     el("div", {class: "eyebrow"}, workoutTitle(workout)),
     effort.node,
-    effort.why,
+    // Three numbers. How it compares with last time is on Progress, exercise by exercise, where the comparison is fair.
     el("div", {class: "stats"},
       stat(workout.reps, "", workout.reps === 1 ? "Rep" : "Reps"),
       stat(workout.sets, "", workout.sets === 1 ? "Set" : "Sets"),
-      stat(picked, "", picked === 1 ? "Exercise" : "Exercises"),
       ...(workout.timed ? [stat(workout.minutes, "min", "Duration")] : [])),
-    ...(before ? [changeChip(workout.reps - before.reps, "the workout before")] : []),
     ...timeline(workout));
 
   let anySlowed = false;
@@ -961,9 +1001,9 @@ function drawToday() {
   });
   if (anySlowed) {
     cards.unshift(el("div", {class: "foot", "data-rise": ""}, icon("slowed", 16),
-      el("span", {}, "Marked sets were pushed hard: the last rep slowed a lot. Tap any set to see why.")));
+      el("span", {}, "Orange sets were pushed hard. Tap any set for details.")));
   } else if (cards.length) {
-    cards.unshift(el("div", {class: "foot", "data-rise": ""}, el("span", {}, "Tap any set to see each rep.")));
+    cards.unshift(el("div", {class: "foot", "data-rise": ""}, el("span", {}, "Tap any set for details.")));
   }
   const parts = [hero, el("div", {class: "list b"}, ...cards)];
   if (workouts.length > 1) {
@@ -1421,7 +1461,7 @@ async function refresh() {
       getJson("/workouts"), getJson("/watch/health"), getJson("/progress"),
       where.screen === "set" ? getJson("/sets/" + encodeURIComponent(where.id)).catch(() => null) : null,
       exercises.length ? exercises : getJson("/exercises")]);
-    workouts = newWorkouts; health = newHealth; exercises = newExercises; progress = newProgress;
+    workouts = byDay(newWorkouts); health = newHealth; exercises = newExercises; progress = newProgress;
     noticeNewSets();
     noticeWatch();
     loaded = true;
