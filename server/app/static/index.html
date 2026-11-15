@@ -295,10 +295,16 @@
   /* Wide laptop: two columns, so the screen is used instead of one thin strip down the middle. */
   @media (min-width: 1120px) {
     .cols { gap: 24px; align-items: start; }
-    .cols.today { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); grid-template-rows: auto 1fr; }
-    .cols.today > .a { grid-column: 1; grid-row: 1; }
-    .cols.today > .b { grid-column: 2; grid-row: 1 / span 2; }
-    .cols.today > .c { grid-column: 1; grid-row: 2; }
+    /* Today: the headline runs across the top, with the buddy beside the ring. Under it, this workout's exercises
+       on the left and the other workouts on the right, so one small exercise card never floats alone. */
+    .cols.today { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .cols.today > .a { grid-column: 1 / -1; }
+    .cols.today > .b { grid-column: 1; grid-template-columns: minmax(0, 1fr); }
+    .cols.today > .c { grid-column: 2; }
+    .cols.today > .b:last-child { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cols.today .effort { flex-direction: row; align-items: center; gap: 40px; }
+    .cols.today .coach { flex: 1; min-width: 0; }
+    .cols.today .score { flex: none; }
     .cols.set { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); }
     .cols.watch { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); }
     .cols.watch .buddy-card { flex-direction: column; align-items: flex-start; padding: 28px 24px; gap: 20px; }
