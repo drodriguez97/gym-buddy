@@ -208,7 +208,34 @@
   .meter i { flex: 1; height: 6px; border-radius: 3px; background: var(--good); max-width: 28px; }
   .meter i.warn { background: var(--wait); }
   .meter i.fail { background: var(--effort); }
-  .check { display: flex; gap: 12px; align-items: flex-start; padding: 13px 10px; }
+  .check { display: flex; gap: 14px; align-items: center; padding: 12px 10px; }
+  .tile { position: relative; width: 34px; height: 34px; border-radius: 11px; flex: none; display: grid; place-items: center;
+          background: var(--good-bg); color: var(--good-text); box-shadow: var(--inner-shadow); }
+  .tile.warn { background: var(--wait-bg); color: var(--wait-text); }
+  .tile.fail { background: var(--effort-bg); color: var(--effort-text); }
+  .tile .mark { position: absolute; right: -5px; bottom: -5px; width: 16px; height: 16px; margin: 0; box-shadow: 0 0 0 2px var(--card); }
+  /* A check that needs a look becomes a filled card inside the list: amber or orange, bolder, with what to do. */
+  .check.warn, .check.fail { background: var(--wait-bg); border-radius: 16px; padding: 16px 14px; margin: 6px 0; border-top: 0;
+                             box-shadow: var(--inner-shadow); }
+  .check.fail { background: var(--effort-bg); }
+  .check.warn + .check, .check.fail + .check { border-top: 0; }
+  .check.warn .tile, .check.fail .tile { background: var(--card); }
+  .check.warn .tile .mark, .check.fail .tile .mark { box-shadow: 0 0 0 2px var(--wait-bg); }
+  .check.fail .tile .mark { box-shadow: 0 0 0 2px var(--effort-bg); }
+  .check.warn .body > div:first-child, .check.fail .body > div:first-child { font-weight: 700; font-size: 16px; }
+  .check.warn .value, .check.fail .value { color: var(--wait-text); font-weight: 700; }
+  .check.fail .value { color: var(--effort-text); }
+  /* The checks arrive one after another, each verdict popping onto its picture. A check that needs a look keeps nudging. */
+  .view.enter .check { animation: rise 0.45s var(--ease) both; animation-delay: calc(var(--c, 0) * 60ms + 150ms); }
+  .view.enter .tile .mark { animation: pop 0.35s var(--ease) both; animation-delay: calc(var(--c, 0) * 60ms + 450ms); }
+  .tile.warn svg:first-child, .tile.fail svg:first-child { animation: nudge 2.6s ease-in-out infinite; }
+  @keyframes nudge { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-9deg); } 86% { transform: rotate(8deg); } 93% { transform: rotate(-4deg); } }
+  /* The buddy on this page moves the way it does on Today. */
+  .buddy-card .buddy, .empty .buddy { transform-origin: 50% 100%; }
+  .buddy-card .buddy.ok, .empty .buddy.ok { animation: bob 3.2s ease-in-out infinite; }
+  .buddy-card .buddy.warn, .empty .buddy.warn { animation: tilt 2.8s ease-in-out infinite; }
+  .buddy-card .buddy.fail, .empty .buddy.fail { animation: pant 1.5s ease-in-out infinite; }
+  .view.enter .meter i { transform-origin: left; }
   .check + .check { border-top: 1px solid var(--line); }
   .mark { width: 24px; height: 24px; border-radius: 50%; flex: none; display: grid; place-items: center;
           background: var(--good); color: var(--on-good); margin-top: -1px; }
@@ -545,6 +572,14 @@ const ICONS = {
   more: "M12 19V5M6 11l6-6 6 6", less: "M12 5v14M6 13l6 6 6-6", stay: "M6 9h12M6 15h12",
   ok: "M5 12.5l4.5 4.5L19 7.5", warn: "M12 6v7.5M12 17.4v.2", fail: "M7 7l10 10M17 7L7 17",
   slowed: "M3 7l6 6 4-4 8 8M21 12v5h-5",
+  // The watch's checks, by the key the server gives each one.
+  seen: "M3 12h4l3-8 4 16 3-8h4",
+  sensor: "M12 2v20M2 12h20M9 5l3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3M19 9l3 3-3 3",
+  wifi: "M2 9a14.5 14.5 0 0120 0M5.5 12.6a9.5 9.5 0 0113 0M9 16.2a4.5 4.5 0 016 0M12 19.6v.2",
+  clock: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 7.5V12l3 2",
+  battery: "M3 8h15v8H3zM21 11v2M6.5 11v2M9.5 11v2M12.5 11v2",
+  storage: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+  waiting: "M12 16V4M7 9l5-5 5 5M4 20h16",
   info: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 11v5.5M12 7.6v.2",
 };
 function icon(name, size, width) {
@@ -781,9 +816,9 @@ function effortBlock(workout) {
              : pushed === 0 ? (kinds.includes("more") ? "nudge" : "ok")
              : all && judged > 1 ? "pumped" : "ok";
   const title = !judged ? "Not enough to judge yet"
-              : mood === "tired" ? "That was a grind"
-              : mood === "nudge" ? "You've got more in you"
-              : pushed === 0 ? "Steady work"
+              : mood === "tired" ? "That was a grind!"
+              : mood === "nudge" ? "You've got more in you!"
+              : pushed === 0 ? "Steady work!"
               : mood === "pumped" ? "Great session!"
               : "Good work!";
   const did = !judged ? "Do a set of 3 reps or more and I'll tell you how hard it was."
@@ -827,13 +862,13 @@ function timeline(workout) {
   const clock = seconds => seconds < 60 ? Math.round(seconds) + " s" : Math.round(seconds / 60) + " min";
   const time = seconds => new Date(seconds * 1000).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
   return [el("div", {class: "chart", role: "img",
-                     "aria-label": "The workout over time: " + clock(moving) + " lifting, longest rest between sets " + clock(longest)},
+                     "aria-label": "The workout over time: " + clock(moving) + " spent lifting, longest rest between sets " + clock(longest)},
     el("div", {class: "timeline"}, ...sets.map((s, i) => {
       return el("i", {class: s.pushed ? "slowed" : "", style: "--c:" + Math.min(i, 14) + ";left:" + (100 * (s.from - start) / span).toFixed(2)
                                                           + "%;width:" + (100 * s.seconds / span).toFixed(2) + "%"});
     })),
     el("div", {class: "ends"}, el("span", {}, time(start)),
-       el("span", {}, clock(moving) + " lifting · longest rest between sets " + clock(longest)), el("span", {}, time(start + span))))];
+       el("span", {}, clock(moving) + " spent lifting · longest rest between sets " + clock(longest)), el("span", {}, time(start + span))))];
 }
 
 function otherWorkouts() {
@@ -925,10 +960,10 @@ function drawToday() {
     return card;
   });
   if (anySlowed) {
-    cards.push(el("div", {class: "foot", "data-rise": ""}, icon("slowed", 16),
+    cards.unshift(el("div", {class: "foot", "data-rise": ""}, icon("slowed", 16),
       el("span", {}, "Marked sets were pushed hard: the last rep slowed a lot. Tap any set to see why.")));
   } else if (cards.length) {
-    cards.push(el("div", {class: "foot", "data-rise": ""}, el("span", {}, "Tap any set to see each rep.")));
+    cards.unshift(el("div", {class: "foot", "data-rise": ""}, el("span", {}, "Tap any set to see each rep.")));
   }
   const parts = [hero, el("div", {class: "list b"}, ...cards)];
   if (workouts.length > 1) {
@@ -1274,9 +1309,12 @@ function drawWatch() {
         el("div", {class: "meter", "aria-hidden": "true"}, ...health.checks.map((check, i) =>
           el("i", {class: check.status, style: "--c:" + i}))))),
     el("div", {class: "stack"},
-      el("section", {class: "card rows", "data-rise": "", "aria-label": "Checks"}, ...health.checks.map(check =>
-        el("div", {class: "check"},
-          el("span", {class: "mark " + check.status, role: "img", "aria-label": words[check.status]}, icon(check.status, 15, 3)),
+      el("section", {class: "card rows", "data-rise": "", "aria-label": "Checks"}, ...health.checks.map((check, i) =>
+        el("div", {class: "check " + check.status, style: "--c:" + i},
+          // What is being checked, as a picture, with the verdict pinned to its corner.
+          el("span", {class: "tile " + check.status},
+            icon(ICONS[check.key] ? check.key : "info", 17, 2.2),
+            el("span", {class: "mark " + check.status, role: "img", "aria-label": words[check.status]}, icon(check.status, 9, 3.6))),
           el("div", {class: "body"},
             el("div", {}, check.label),
             ...(check.help ? [el("div", {class: "help " + check.status}, check.help)] : [])),
