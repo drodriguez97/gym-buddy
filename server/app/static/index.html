@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0B0B0C" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <title>Gym Buddy</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect width='28' height='28' rx='8'/%3E%3Crect x='5.5' y='8' width='7' height='9' rx='3' fill='%237CFF6B'/%3E%3Crect x='15.5' y='8' width='7' height='9' rx='3' fill='%237CFF6B'/%3E%3Cpath d='M11 20.5q3 2.2 6 0' stroke='%237CFF6B' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
@@ -33,7 +33,7 @@
     --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     color-scheme: dark;
   }
-  @media (prefers-color-scheme: light) {
+  @media all {   /* light for everyone: change "all" back to "(prefers-color-scheme: light)" to follow the device again */
     :root {
       --bg: #F2F2F7; --card: #FFFFFF; --raised: #EFEFF4; --raised-2: #E3E3EA; --line: rgba(0, 0, 0, 0.09);
       --text: #1C1C1E; --muted: #5C5C66;
@@ -57,7 +57,7 @@
   svg { display: block; flex: none; }
   [hidden] { display: none !important; }
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-  .num { font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Roboto, system-ui, sans-serif;
+  .num, .brand, .effort .title, .section-title, .empty h2, .buddy-card .title { font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Roboto, system-ui, sans-serif;
          font-variant-numeric: tabular-nums; }
 
   /* The page frame: header, the screen itself, and the bar at the bottom. */
@@ -375,20 +375,46 @@
   .cal .words .n small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
 
   /* ---- the headline on Today: a ring for the share of sets pushed hard, and what to do next time ---- */
-  .effort { display: flex; align-items: center; gap: 18px; }
-  .ring { position: relative; width: 124px; height: 124px; flex: none; }
+  .effort { display: flex; flex-direction: column; gap: 16px; }
+  .coach { display: flex; align-items: center; gap: 14px; }
+  .bubble { position: relative; flex: 1; min-width: 0; padding: 12px 14px; border-radius: 16px; background: var(--raised);
+            display: flex; flex-direction: column; gap: 4px; }
+  .bubble::before { content: ""; position: absolute; left: -6px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
+                    background: var(--raised); border-radius: 3px; transform: rotate(45deg); }
+  .bubble .title { position: relative; }
+  .score { display: flex; align-items: center; gap: 16px; }
+  .score .label { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .ring { position: relative; width: 104px; height: 104px; flex: none; }
   .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
   .ring circle { fill: none; stroke-width: 11; }
   .ring .track { stroke: var(--raised-2); }
   .ring .arc { stroke: var(--effort); stroke-linecap: round; }
   .ring .mid { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; line-height: 1; }
-  .ring .mid .num { font-size: 46px; font-weight: 700; letter-spacing: -0.03em; }
+  .ring .mid .num { font-size: 40px; font-weight: 700; letter-spacing: -0.03em; }
   .ring .mid small { font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 4px; }
   .view.enter .ring .arc { animation: ring 0.9s var(--ease) 0.15s both; }
   @keyframes ring { from { stroke-dasharray: 0 100; } }
   .effort .words { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-  .effort .title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
-  .effort .say { font-size: 15px; line-height: 1.35; }
+  .effort .title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+  .effort .say { font-size: 14px; line-height: 1.35; }
+  .effort .say.next { color: var(--muted); }
+  /* The coach moves the way it feels. All of it stops for people who asked for no motion (the rule further up). */
+  .coach .buddy { transform-origin: 50% 100%; }
+  .coach .buddy.ok { animation: bob 3.2s ease-in-out infinite; }
+  .coach .buddy.pumped { animation: hop 1.1s var(--ease) infinite; }
+  .coach .buddy.nudge { animation: tilt 2.8s ease-in-out infinite; }
+  .coach .buddy.tired { animation: pant 1.5s ease-in-out infinite; }
+  .buddy .spark { animation: spark 1.1s ease-in-out infinite; }
+  .buddy .drop { animation: drip 1.8s ease-in infinite; }
+  .view.enter .bubble { animation: say 0.45s var(--ease) 0.25s both; transform-origin: 0 50%; }
+  @keyframes bob { 50% { transform: translateY(-3px); } }
+  @keyframes hop { 0%, 55%, 100% { transform: translateY(0) scale(1, 1); } 12% { transform: scale(1.06, 0.92); }
+                   32% { transform: translateY(-10px) scale(0.97, 1.04); } }
+  @keyframes tilt { 0%, 40%, 100% { transform: rotate(0); } 55% { transform: rotate(-7deg); } 75% { transform: rotate(5deg); } }
+  @keyframes pant { 50% { transform: scale(1.03, 0.97); } }
+  @keyframes spark { 0%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+  @keyframes drip { 0% { opacity: 0; transform: translateY(-3px); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateY(9px); } }
+  @keyframes say { from { opacity: 0; transform: scale(0.9); } }
   .hero .why { font-size: 12px; color: var(--muted); line-height: 1.35; margin-top: -6px; }
   @media (min-width: 900px) { .ring { width: 140px; height: 140px; } .ring .mid .num { font-size: 52px; } }
 
@@ -607,9 +633,24 @@ function buddy(status, size) {
   // The watch with its face on it, drawn like the real one: two rounded eyes.
   // Green and smiling when all is well, amber with one eye squinting when something needs a look,
   // orange and worried when something failed. The screen stays black in both themes, like the real screen.
-  const color = {ok: "#7CFF6B", warn: "#FFC233", fail: "#FF8A4C"}[status];
+  // On Today it is the coach, and its mood follows the workout: pumped, nudge (you had more in you), tired.
+  const color = {ok: "#7CFF6B", warn: "#FFC233", fail: "#FF8A4C", pumped: "#7CFF6B", nudge: "#7CFF6B", tired: "#FF8A4C"}[status];
   const face = [];
-  if (status === "ok") {
+  if (status === "pumped") {            // eyes squeezed into arcs, mouth wide open
+    face.push(svgEl("path", {d: "M33 50q10-17 20 0M67 50q10-17 20 0", stroke: color, "stroke-width": 6.5, fill: "none", "stroke-linecap": "round"}),
+              svgEl("path", {d: "M47 60h26q-13 17-26 0z", fill: color}),
+              svgEl("path", {class: "spark", d: "M20 30l-5-5M17 40h-7M100 30l5-5M103 40h7", stroke: color, "stroke-width": 3, "stroke-linecap": "round"}));
+  } else if (status === "nudge") {      // half-closed eyes and a flat mouth: "is that all?"
+    face.push(svgEl("rect", {class: "blink", x: 34, y: 35, width: 19, height: 20, rx: 8, fill: color}),
+              svgEl("rect", {class: "blink", x: 67, y: 35, width: 19, height: 20, rx: 8, fill: color}),
+              svgEl("rect", {x: 30, y: 30, width: 60, height: 14, fill: "#000"}),
+              svgEl("path", {d: "M52 66h17", stroke: color, "stroke-width": 3, fill: "none", "stroke-linecap": "round"}));
+  } else if (status === "tired") {      // the worried face, with a drop of sweat
+    face.push(svgEl("rect", {x: 31, y: 36, width: 22, height: 26, rx: 7, fill: color}),
+              svgEl("rect", {x: 68, y: 44, width: 21, height: 16, rx: 6, fill: color}),
+              svgEl("path", {d: "M30 35h24v2L30 45zM67 43h23v9L67 45z", fill: "#000"}),
+              svgEl("path", {class: "drop", d: "M98 27q6 9 0 12q-6-3 0-12z", fill: "#6BC7FF"}));
+  } else if (status === "ok") {
     face.push(svgEl("rect", {class: "blink", x: 34, y: 33, width: 19, height: 20, rx: 8, fill: color}),
               svgEl("rect", {class: "blink", x: 67, y: 33, width: 19, height: 20, rx: 8, fill: color}),
               svgEl("path", {d: "M51 62q9 7 18 0", stroke: color, "stroke-width": 3, fill: "none", "stroke-linecap": "round"}));
@@ -622,7 +663,7 @@ function buddy(status, size) {
               svgEl("path", {d: "M30 35h24v2L30 45zM67 43h23v9L67 45z", fill: "#000"}));   // the worried slant of the eyelids
   }
   const scale = (size || 96) / 120;
-  return svgEl("svg", {class: "buddy", viewBox: "0 0 120 108", width: Math.round(120 * scale), height: Math.round(108 * scale), "aria-hidden": "true"},
+  return svgEl("svg", {class: "buddy " + status, viewBox: "0 0 120 108", width: Math.round(120 * scale), height: Math.round(108 * scale), "aria-hidden": "true"},
     svgEl("rect", {class: "strap", x: 36, y: 0, width: 48, height: 22, rx: 6}),
     svgEl("rect", {class: "strap", x: 36, y: 86, width: 48, height: 22, rx: 6}),
     svgEl("rect", {class: "strap", x: 113, y: 40, width: 5, height: 16, rx: 2.5}),
@@ -713,15 +754,40 @@ function effortBlock(workout) {
       svgEl("circle", {class: "track", cx: 60, cy: 60, r: 52}),
       ...(share ? [svgEl("circle", {class: "arc", cx: 60, cy: 60, r: 52, pathLength: 100, "stroke-dasharray": share.toFixed(1) + " 100"})] : [])),
     el("div", {class: "mid"}, number, ...(judged ? [el("small", {}, "of " + judged)] : [])));
+  // The buddy says it: a verdict in a speech bubble, with a face to match. Then the ring's number, and what to do.
+  // Which verdict is a matter of presentation only: it reads the server's counts and suggestions, and decides nothing.
+  const kinds = (workout.exercises || []).map(exercise => exercise.suggestion && exercise.suggestion.kind);
+  const all = pushed === judged;
+  const mood = !judged ? "ok"
+             : kinds.includes("less") ? "tired"
+             : pushed === 0 ? (kinds.includes("more") ? "nudge" : "ok")
+             : all && judged > 1 ? "pumped" : "ok";
   const title = !judged ? "Not enough to judge yet"
-              : pushed === 0 ? "No set pushed hard"
-              : (pushed === 1 ? "set" : "sets") + " pushed hard";
-  const spoken = judged ? pushed + " of " + plural(judged, "set") + " pushed hard" : title;
+              : mood === "tired" ? "That was a grind"
+              : mood === "nudge" ? "You've got more in you"
+              : pushed === 0 ? "Steady work"
+              : mood === "pumped" ? "Great session!"
+              : "Good work!";
+  const did = !judged ? "Do a set of 3 reps or more and I'll tell you how hard it was."
+            // The bubble adds the feeling. The count is the ring's to give and the weights are the advice's, so neither is repeated here.
+            : mood === "tired" ? "That one took a lot out of you."
+            : pushed === 0 ? (mood === "nudge" ? "Your pace never dropped. Time to step it up."
+                                               : kinds.includes("stay") ? "Not easy, not all-out. Right where you should be."
+                                               : "Nothing at your limit today.")
+            : all ? "You left nothing in the tank."
+            : "You dug deep when it got tough.";
+  // With one exercise, its own card right below gives the same advice in more detail: say it once.
+  const advice = kinds.filter(Boolean).length > 1 ? workout.advice : null;
+  const spoken = judged ? title + " " + pushed + " of " + plural(judged, "set") + " pushed hard" : title;
   const node = el("div", {class: "effort", role: "group", "aria-label": spoken},
-    ring,
-    el("div", {class: "words"},
-      el("div", {class: "title"}, title),
-      ...(workout.advice ? [el("div", {class: "say"}, workout.advice)] : [])));
+    el("div", {class: "coach"},
+      buddy(mood, 78),
+      el("div", {class: "bubble"}, el("div", {class: "title"}, title), el("div", {class: "say"}, did))),
+    el("div", {class: "score"},
+      ring,
+      el("div", {class: "words"},
+        el("div", {class: "label"}, !judged ? "No sets judged yet" : (pushed === 1 ? "set" : "sets") + " pushed hard"),
+        ...(advice ? [el("div", {class: "say next"}, advice)] : []))));
   // What the number means, in one line under it: on a phone there is no room for it beside the ring.
   const why = el("div", {class: "why"}, judged ? "Pushed hard: the last rep took at least 25% longer than your usual pace."
                                                : "Effort shows up on sets of 3 reps or more.");
@@ -843,6 +909,8 @@ function drawToday() {
   if (anySlowed) {
     cards.push(el("div", {class: "foot", "data-rise": ""}, icon("slowed", 16),
       el("span", {}, "Marked sets were pushed hard: the last rep slowed a lot. Tap any set to see why.")));
+  } else if (cards.length) {
+    cards.push(el("div", {class: "foot", "data-rise": ""}, el("span", {}, "Tap any set to see each rep.")));
   }
   const parts = [hero, el("div", {class: "list b"}, ...cards)];
   if (workouts.length > 1) {
@@ -1080,12 +1148,13 @@ function shortDay(iso) {
 }
 
 function activityCard() {
-  // The last four weeks, Monday to Sunday, newest week at the bottom. A day with a workout is filled,
+  // The last four weeks, Sunday to Saturday, newest week at the bottom. A day with a workout is filled,
   // brighter for a bigger day, and opens that workout. Worked out here from the workouts already loaded.
+  // The numbers count days, not workouts: two sessions on one day are still one day you trained.
   const midnight = date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const today = midnight(new Date());
-  const monday = new Date(today); monday.setDate(today.getDate() - (today.getDay() + 6) % 7);
-  const first = new Date(monday); first.setDate(monday.getDate() - 21);
+  const sunday = new Date(today); sunday.setDate(today.getDate() - today.getDay());
+  const first = new Date(sunday); first.setDate(sunday.getDate() - 21);
   const byDay = new Map();          // day -> {reps, sets, count, index of that day's newest workout}
   workouts.forEach((workout, index) => {
     const key = midnight(new Date(workout.started_at)).getTime();
@@ -1102,8 +1171,8 @@ function activityCard() {
     const isToday = date.getTime() === today.getTime(), later = date > today;
     const spoken = date.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
     if (day) {
-      fourWeeks += day.count;
-      if (date >= monday) thisWeek += day.count;
+      fourWeeks += 1;
+      if (date >= sunday) thisWeek += 1;
       cells.push(el("button", {class: "day on" + (day.reps >= 0.6 * most ? " big" : "") + (isToday ? " today" : ""), style: "--c:" + Math.min(shownOn++, 10),
                                "aria-label": spoken + ": " + plural(day.reps, "rep") + ", " + plural(day.sets, "set") + ". Open this workout.",
                                onclick: () => { shown = day.index; location.hash = ""; window.scrollTo(0, 0); }},
@@ -1114,13 +1183,13 @@ function activityCard() {
     }
   }
   return el("section", {class: "card", "data-rise": ""},
-    el("div", {class: "card-head"}, el("h2", {}, "Last 4 weeks"), el("span", {class: "muted"}, plural(fourWeeks, "workout"))),
+    el("div", {class: "card-head"}, el("h2", {}, "Last 4 weeks"), el("span", {class: "muted"}, plural(fourWeeks, "day") + " trained")),
     el("div", {class: "cal"},
       el("div", {class: "weeks"},
-        ...["M", "T", "W", "T", "F", "S", "S"].map(letter => el("span", {class: "wd", "aria-hidden": "true"}, letter)),
+        ...["S", "M", "T", "W", "T", "F", "S"].map(letter => el("span", {class: "wd", "aria-hidden": "true"}, letter)),
         ...cells),
       el("div", {class: "words"},
-        el("span", {class: "n num"}, String(thisWeek), el("small", {}, thisWeek === 1 ? "workout this week" : "workouts this week")),
+        el("span", {class: "n num"}, String(thisWeek), el("small", {}, thisWeek === 1 ? "day this week" : "days this week")),
         el("span", {class: "muted"}, "Tap a filled day to open its workout."))));
 }
 
