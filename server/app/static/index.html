@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#ECEDF2" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ECEDF2" media="(prefers-color-scheme: light)">
 <title>Gym Buddy</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect width='28' height='28' rx='8'/%3E%3Crect x='5.5' y='8' width='7' height='9' rx='3' fill='%237CFF6B'/%3E%3Crect x='15.5' y='8' width='7' height='9' rx='3' fill='%237CFF6B'/%3E%3Cpath d='M11 20.5q3 2.2 6 0' stroke='%237CFF6B' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <!-- "Add to Home Screen" on a phone: its own icon, and it opens full screen like an app, without the browser's bars. -->
@@ -27,7 +27,8 @@
     --wait: #FFC233; --wait-text: #FFC233; --wait-bg: #382C0E; --on-wait: #0B0B0C;
     --effort: #FF8A4C; --effort-text: #FFB48A; --effort-bg: #45281A; --on-effort: #0B0B0C;
     --hero-glow: rgba(124, 255, 107, 0.11); --bar-dim: 0.8; --bar-bg: rgba(11, 11, 12, 0.78);
-    --card-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    --card-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), 0 12px 32px -12px rgba(0, 0, 0, 0.6);
+    --inner-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
     --watch-body: #3A3A3F; --watch-strap: #2C2C30; --focus: #7CFF6B;
     --r-card: 22px; --r-chip: 14px; --gap: 16px;
     --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -35,14 +36,16 @@
   }
   @media all {   /* light for everyone: change "all" back to "(prefers-color-scheme: light)" to follow the device again */
     :root {
-      --bg: #F2F2F7; --card: #FFFFFF; --raised: #EFEFF4; --raised-2: #E3E3EA; --line: rgba(0, 0, 0, 0.09);
+      --bg: #ECEDF2; --card: #FFFFFF; --raised: #EFEFF4; --raised-2: #E3E3EA; --line: rgba(0, 0, 0, 0.09);
       --text: #1C1C1E; --muted: #5C5C66;
       /* The watch's bright green is unreadable on white, so the light theme uses darker shades of the same three colours. */
       --good: #1E9E3A; --good-text: #17722A; --good-bg: #E2F5E5; --on-good: #FFFFFF;
       --wait: #B77700; --wait-text: #835400; --wait-bg: #FFF0C7; --on-wait: #FFFFFF;
       --effort: #D9541A; --effort-text: #A63C0A; --effort-bg: #FFE5D6; --on-effort: #FFFFFF;
       --hero-glow: rgba(30, 158, 58, 0.10); --bar-dim: 0.9; --bar-bg: rgba(250, 250, 252, 0.82);
-      --card-shadow: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05);
+      /* Depth: a hairline edge, a tight shadow right under the card, and a soft wide one further out. */
+      --card-shadow: 0 0 0 1px rgba(15, 20, 40, 0.04), 0 1px 2px rgba(15, 20, 40, 0.06), 0 6px 12px -2px rgba(15, 20, 40, 0.06), 0 22px 40px -14px rgba(15, 20, 40, 0.16);
+      --inner-shadow: inset 0 0 0 1px rgba(15, 20, 40, 0.04), 0 1px 2px rgba(15, 20, 40, 0.07);
       --watch-body: #2A2A2E; --watch-strap: #C4C4CC; --focus: #17722A;
       color-scheme: light;
     }
@@ -94,7 +97,11 @@
   .card-head .muted { font-size: 14px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 
   /* The big number at the top of Today and of a set. */
-  .hero { background: radial-gradient(120% 130% at 0% 0%, var(--hero-glow), transparent 62%), var(--card); padding: 20px; gap: 16px; }
+  .hero { padding: 20px; gap: 16px; }
+  /* The pieces that sit on a card are lifted a little too, so a card reads as layers and not one flat sheet. */
+  .chip, .callout, .bubble { box-shadow: var(--inner-shadow); }
+  .chip, .rowlink { transition: transform 0.15s var(--ease), background-color 0.15s; }
+  @media (hover: hover) { .chip:hover { transform: translateY(-2px); } .rowlink:hover { background: var(--raised); } }
   .big { display: flex; align-items: baseline; gap: 8px; line-height: 0.95; }
   .big .num { font-size: 88px; font-weight: 700; letter-spacing: -0.035em; }
   .big .unit { font-size: 20px; font-weight: 500; color: var(--muted); }
@@ -304,6 +311,7 @@
     .cols.today > .b:last-child { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .cols.today .effort { flex-direction: row; align-items: center; gap: 40px; }
     .cols.today .coach { flex: 1; min-width: 0; }
+    .cols.today .bubble { flex: 0 1 auto; padding-right: 28px; }
     .cols.today .score { flex: none; }
     .cols.set { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); }
     .cols.watch { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); }
@@ -355,6 +363,10 @@
   .rep-dot.small { width: 10px; height: 10px; margin: 0 0 -5px -5px; box-shadow: 0 0 0 2px var(--card); }
   .view.enter .rep-dot { animation: pop 0.35s var(--ease) both; animation-delay: calc(var(--c, 0) * 60ms + 350ms); }
   .ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 8px; }
+  /* On a phone the summary gets a line of its own under the two times; from tablet width up it sits between them. */
+  .ends { flex-wrap: wrap; row-gap: 4px; }
+  .ends span:nth-child(2):not(:last-child) { order: 3; flex-basis: 100%; text-align: center; font-size: 12px; }
+  @media (min-width: 640px) { .ends span:nth-child(2):not(:last-child) { order: 0; flex-basis: auto; font-size: 11px; } }
 
   /* ---- the workout as a strip of time: a block for each set, the gaps between are rest ---- */
   .timeline { position: relative; height: 26px; border-radius: 8px; background: var(--raised); overflow: hidden; }
@@ -815,13 +827,13 @@ function timeline(workout) {
   const clock = seconds => seconds < 60 ? Math.round(seconds) + " s" : Math.round(seconds / 60) + " min";
   const time = seconds => new Date(seconds * 1000).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
   return [el("div", {class: "chart", role: "img",
-                     "aria-label": "The workout over time: " + clock(moving) + " of sets, longest rest " + clock(longest)},
+                     "aria-label": "The workout over time: " + clock(moving) + " lifting, longest rest between sets " + clock(longest)},
     el("div", {class: "timeline"}, ...sets.map((s, i) => {
       return el("i", {class: s.pushed ? "slowed" : "", style: "--c:" + Math.min(i, 14) + ";left:" + (100 * (s.from - start) / span).toFixed(2)
                                                           + "%;width:" + (100 * s.seconds / span).toFixed(2) + "%"});
     })),
     el("div", {class: "ends"}, el("span", {}, time(start)),
-       el("span", {}, clock(moving) + " moving · longest rest " + clock(longest)), el("span", {}, time(start + span))))];
+       el("span", {}, clock(moving) + " lifting · longest rest between sets " + clock(longest)), el("span", {}, time(start + span))))];
 }
 
 function otherWorkouts() {
